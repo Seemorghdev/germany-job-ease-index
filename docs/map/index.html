@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Where in Germany is it easiest to land a job?</title>
+<style>
+  :root { --ink: #1f1f24; --muted: #6b6b75; --line: #e4e4ea; }
+  body { margin: 0; background: #fafafa; color: var(--ink);
+         font-family: system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
+  main { max-width: 1080px; margin: 0 auto; padding: 24px 16px 64px; }
+  #graphic svg { width: 100%; height: auto; display: block; background: #fff;
+                 box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08); }
+  .actions { display: flex; gap: 8px; margin: 16px 0 32px; }
+  button { font: inherit; padding: 8px 14px; border: 1px solid var(--line); border-radius: 6px;
+           background: #fff; cursor: pointer; }
+  button:hover { border-color: var(--muted); }
+  .notes { max-width: 720px; line-height: 1.55; }
+  .notes h2 { font-size: 1.1rem; margin-top: 2rem; }
+  .notes li { margin-bottom: 0.4rem; }
+  .error { color: #b00020; }
+</style>
+</head>
+<body>
+<main>
+  <div id="graphic" aria-live="polite">Loading…</div>
+  <div class="actions">
+    <button id="png" type="button">Download PNG (1080 × 1350, for LinkedIn)</button>
+    <button id="svg" type="button">Download SVG</button>
+  </div>
+  <section class="notes">
+    <h2>How to read it</h2>
+    <ul>
+      <li><strong>Districts</strong> are shaded by unemployed people per 1,000 residents
+        (all ages, so lower than the official rate, which counts only the labour force).</li>
+      <li><strong>Dots</strong> are the 79 cities with 100,000+ residents, sized by population.
+        Green ones are ranked; the darker, the more entry-level listings per 1,000 unemployed.
+        White dots are cities that make up less than half of their district, where the
+        district's unemployment says little about the city itself.</li>
+      <li><strong>The top 5</strong> rank first on a weighted mix of all three kinds of work
+        (entry-level counts double). The bars show listings per 1,000 unemployed per kind of
+        work; the black tick marks Berlin's value.</li>
+    </ul>
+    <h2>Data</h2>
+    <p id="sources"></p>
+    <p>Built with Python, DuckDB, dbt and Dagster; drawn with Observable Plot and D3.
+      Code and method: <code>germany-job-ease-index</code>.</p>
+  </section>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+<script src="https://cdn.jsdelivr.net/npm/@observablehq/plot@0.6"></script>
+<script src="data.js"></script>
+<script>
+"use strict";
+
+const W = 1080;
+const H = 1350;
+const MAP = { x: 16, y: 150, w: 690, h: 910 };
+const SIDE = { x: 724, y: 168, w: 332 };
+const FONT = 'system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif';
+const INK = "#1f1f24";
+const MUTED = "#6b6b75";
+const TIER_SHORT = { A: "Tech", B: "Office", C: "Entry-level" };
+
+function fmt(value, digits = 0) {
+  return value == null ? "–" : value.toLocaleString("en-GB", {
+    minimumFractionDigits: digits, maximumFractionDigits: digits,
+  });
+}
+
+function monthLabel(period) {
+  if (!period) return "";
+  const [year, month] = period.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, 1)).toLocaleString("en-GB", {
+    month: "long", year: "numeric", timeZone: "UTC",
+  });
+}
+
+function fmtChange(value) {
+  if (value == null) return "boundaries changed since 2019";
+  return `${value > 0 ? "+" : ""}${fmt(value)}%`;
+}
+
+function text(parent, x, y, content, attrs = {}) {
+  const node = parent.append("text").attr("x", x).attr("y", y).text(content)
+    .attr("fill", attrs.fill || INK).attr("font-size", attrs.size || 16)
+    .attr("font-weight", attrs.weight || 400).attr("text-anchor", attrs.anchor || "start");
+  return node;
+}
+
+function draw(data) {
+  const districts = data.districts;
+  const lands = data.lands;
+  const cities = data.cities.filter((c) => c.lon != null && c.lat != null);
+  const ranked = cities.filter((c) => c.is_ranked && c.rank != null)
+    .sort((a, b) => a.rank - b.rank);
+  const top = ranked.slice(0, 5);
+  const berlin = cities.find((c) => c.ags === "11000000");
+
+  // District shading: six quantile classes, muted so the city dots carry the story.
+  const perThousand = districts.features.map((f) => f.properties.per_1000)
+    .filter((v) => v != null);
+  const districtColor = d3.scaleQuantile()
+    .domain(perThousand)
+    .range(d3.quantize(d3.interpolateRgb("#f2f0f6", "#6f6290"), 6));
+
+  // City colour: entry-level listings per 1,000 unemployed, ranked cities only.
+  const entryRates = ranked.map((c) => c.rates.C).filter((v) => v != null);
+  const cityColor = d3.scaleSequential((t) => d3.interpolateGreens(0.35 + 0.65 * t))
+    .domain(d3.extent(entryRates));
+
+  const labelled = new Set(["11000000", "02000000", "09162000", "05315000"]);  // Berlin, Hamburg, München, Köln
+  top.forEach((c) => labelled.add(c.ags));
+
+  const map = Plot.plot({
+    width: MAP.w,
+    height: MAP.h,
+    margin: 0,
+    style: { fontFamily: FONT, fontSize: "13px", background: "transparent" },
+    projection: { type: "transverse-mercator", rotate: [-10.45, -51.16], domain: lands, inset: 6 },
+    color: { type: "identity" },
+    r: { range: [2.5, 15] },
+    marks: [
+      Plot.geo(districts, Plot.centroid({
+        fill: (d) => d.properties.per_1000 == null ? "#eeeeee" : districtColor(d.properties.per_1000),
+        stroke: "#ffffff",
+        strokeWidth: 0.35,
+        title: (d) => [
+          d.properties.name,
+          `Unemployed per 1,000 residents: ${fmt(d.properties.per_1000, 1)}`,
+          `Change since 2019: ${fmtChange(d.properties.change_pct)}`,
+        ].join("\n"),
+      })),
+      Plot.geo(lands, { stroke: "#5f5f6b", strokeWidth: 0.8, fill: "none" }),
+      Plot.dot(cities, {
+        x: "lon",
+        y: "lat",
+        r: "population",
+        fill: (d) => d.is_ranked ? cityColor(d.rates.C) : "#ffffff",
+        stroke: (d) => d.is_ranked ? "#ffffff" : "#8a8a95",
+        strokeWidth: 1,
+        sort: { channel: "r", order: "descending" },
+        title: (d) => [
+          d.city,
+          d.is_ranked ? `Rank ${d.rank} of ${ranked.length}` : "Not ranked (city is under half its district)",
+          `Entry-level listings per 1,000 unemployed: ${fmt(d.rates.C, 1)}`,
+          `Office: ${fmt(d.rates.B, 1)} · Tech: ${fmt(d.rates.A, 1)}`,
+        ].join("\n"),
+      }),
+      Plot.dot(top, {
+        x: "lon", y: "lat", dx: 15, dy: -15, r: 10, fill: INK, stroke: "#ffffff", strokeWidth: 1.5,
+      }),
+      Plot.text(top, {
+        x: "lon", y: "lat", dx: 15, dy: -15, text: (d) => String(d.rank),
+        fill: "#ffffff", fontWeight: 700, fontSize: 12,
+      }),
+      Plot.text(cities.filter((c) => labelled.has(c.ags)), {
+        x: "lon", y: "lat", text: "city", dx: 28, dy: -15, textAnchor: "start",
+        fill: INK, fontWeight: 600, fontSize: 14, stroke: "#ffffff", strokeWidth: 3,
+      }),
+    ],
+  });
+
+  const svg = d3.create("svg")
+    .attr("xmlns", "http://www.w3.org/2000/svg")
+    .attr("viewBox", `0 0 ${W} ${H}`)
+    .attr("width", W)
+    .attr("height", H)
+    .attr("font-family", FONT)
+    .attr("role", "img")
+    .attr("aria-label", "Map of Germany: districts shaded by unemployment, cities by job-board openings per job seeker");
+  svg.append("rect").attr("width", W).attr("height", H).attr("fill", "#ffffff");
+
+  // Title block
+  text(svg, 40, 66, "Where in Germany is it easiest to land a job?", { size: 38, weight: 700 });
+  text(svg, 40, 104,
+    `Job-board listings per 1,000 unemployed, in the ${cities.length} cities with 100,000+ residents`,
+    { size: 20, fill: MUTED });
+  text(svg, 40, 132,
+    `Unemployment: ${monthLabel(data.unemployment_period)} · listings posted in the last 30 days`,
+    { size: 17, fill: MUTED });
+
+  // Map
+  const mapSvg = map.tagName.toLowerCase() === "svg" ? map : map.querySelector("svg");
+  mapSvg.setAttribute("x", MAP.x);
+  mapSvg.setAttribute("y", MAP.y);
+  svg.node().appendChild(mapSvg);
+
+  // Side column: the top five, with mini bars per tier and Berlin as a reference tick.
+  const side = svg.append("g").attr("transform", `translate(${SIDE.x},${SIDE.y})`);
+  text(side, 0, 0, "The top 5", { size: 22, weight: 700 });
+  text(side, 0, 24, "Listings per 1,000 unemployed · black tick = Berlin", { size: 14, fill: MUTED });
+  const tiers = ["C", "B", "A"];
+  const maxRate = d3.max([...top, berlin].filter(Boolean)
+    .flatMap((c) => tiers.map((t) => c.rates[t] || 0)));
+  const barX = d3.scaleLinear().domain([0, maxRate]).range([0, 190]);
+  const cardH = 158;
+  top.forEach((city, i) => {
+    const card = side.append("g").attr("transform", `translate(0,${44 + i * (cardH + 12)})`);
+    card.append("rect").attr("width", SIDE.w).attr("height", cardH).attr("rx", 10)
+      .attr("fill", "#f6f6f8");
+    card.append("circle").attr("cx", 26).attr("cy", 30).attr("r", 14).attr("fill", INK);
+    text(card, 26, 35, String(city.rank), { size: 14, weight: 700, fill: "#ffffff", anchor: "middle" });
+    text(card, 50, 37, city.city, { size: 22, weight: 700 });
+    tiers.forEach((tier, j) => {
+      const y = 62 + j * 30;
+      const value = city.rates[tier] || 0;
+      text(card, 16, y + 12, TIER_SHORT[tier], { size: 13, fill: MUTED });
+      card.append("rect").attr("x", 100).attr("y", y).attr("height", 16)
+        .attr("width", Math.max(1, barX(value))).attr("rx", 3)
+        .attr("fill", tier === "C" ? cityColor(value) : "#9a9aa6");
+      if (berlin && berlin.rates[tier] != null) {
+        const bx = 100 + barX(berlin.rates[tier]);
+        card.append("line").attr("x1", bx).attr("x2", bx).attr("y1", y - 3).attr("y2", y + 19)
+          .attr("stroke", INK).attr("stroke-width", 2);
+      }
+      text(card, 100 + barX(value) + 8, y + 13, fmt(value), { size: 13, weight: 600 });
+    });
+  });
+
+  // Legends
+  const legend = svg.append("g").attr("transform", "translate(40,1090)");
+  text(legend, 0, 0, "Districts: unemployed per 1,000 residents", { size: 14, weight: 600 });
+  const classes = districtColor.range();
+  const cuts = [d3.min(perThousand), ...districtColor.quantiles(), d3.max(perThousand)];
+  classes.forEach((color, i) => {
+    legend.append("rect").attr("x", i * 52).attr("y", 12).attr("width", 50).attr("height", 14)
+      .attr("fill", color);
+    text(legend, i * 52, 44, fmt(cuts[i]), { size: 12, fill: MUTED });
+  });
+  text(legend, classes.length * 52, 44, fmt(cuts[cuts.length - 1]), { size: 12, fill: MUTED, anchor: "end" });
+
+  const cityLegend = svg.append("g").attr("transform", "translate(420,1090)");
+  text(cityLegend, 0, 0, "Cities: entry-level listings per 1,000 unemployed", { size: 14, weight: 600 });
+  const [lo, hi] = cityColor.domain();
+  const steps = d3.range(0, 1.0001, 0.1).map((t) => lo + t * (hi - lo));
+  steps.slice(0, -1).forEach((v, i) => {
+    cityLegend.append("rect").attr("x", i * 26).attr("y", 12).attr("width", 26).attr("height", 14)
+      .attr("fill", cityColor(v));
+  });
+  text(cityLegend, 0, 44, fmt(cityColor.domain()[0]), { size: 12, fill: MUTED });
+  text(cityLegend, 260, 44, fmt(cityColor.domain()[1]), { size: 12, fill: MUTED, anchor: "end" });
+  cityLegend.append("circle").attr("cx", 300).attr("cy", 19).attr("r", 7).attr("fill", "#ffffff")
+    .attr("stroke", "#8a8a95");
+  text(cityLegend, 314, 24, "not ranked", { size: 12, fill: MUTED });
+
+  // Key finding
+  if (top.length && berlin && berlin.rates.C) {
+    const ratio = top[0].rates.C / berlin.rates.C;
+    text(svg, 40, 1210,
+      `${top[0].city} has ${fmt(ratio, 1)}× as many entry-level openings per job seeker as Berlin.`,
+      { size: 22, weight: 600 });
+  }
+
+  // Footer
+  const half = Math.ceil(data.sources.length / 2);
+  text(svg, 40, 1270, `Data: ${data.sources.slice(0, half).join(" · ")}`, { size: 12, fill: MUTED });
+  text(svg, 40, 1290, data.sources.slice(half).join(" · "), { size: 12, fill: MUTED });
+  text(svg, 40, 1316, "germany-job-ease-index · Python, DuckDB, dbt, Dagster · Observable Plot",
+    { size: 11, fill: MUTED });
+
+  return svg.node();
+}
+
+function serialise(node) {
+  const clone = node.cloneNode(true);
+  clone.querySelectorAll('[aria-label="tip"]').forEach((tip) => tip.remove());
+  return new XMLSerializer().serializeToString(clone);
+}
+
+function download(blob, name) {
+  const url = URL.createObjectURL(blob);
+  const link = Object.assign(document.createElement("a"), { href: url, download: name });
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function exportPng(node, scale = 2) {
+  const image = new Image();
+  image.onload = () => {
+    const canvas = Object.assign(document.createElement("canvas"), {
+      width: W * scale, height: H * scale,
+    });
+    const context = canvas.getContext("2d");
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    canvas.toBlob((blob) => download(blob, "germany-job-ease-map.png"), "image/png");
+  };
+  image.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(serialise(node));
+}
+
+const container = document.getElementById("graphic");
+try {
+  const data = window.JOBEASE_MAP;
+  if (!data) throw new Error("data.js is missing: run `jobease export-map` first.");
+  const node = draw(data);
+  container.replaceChildren(node);
+  document.getElementById("sources").textContent = data.sources.join(" · ");
+  document.getElementById("png").addEventListener("click", () => exportPng(node));
+  document.getElementById("svg").addEventListener("click", () =>
+    download(new Blob([serialise(node)], { type: "image/svg+xml" }), "germany-job-ease-map.svg"));
+} catch (error) {
+  container.innerHTML = "";
+  const message = document.createElement("p");
+  message.className = "error";
+  message.textContent = `The map could not be drawn: ${error.message}`;
+  container.appendChild(message);
+  console.error(error);
+}
+</script>
+</body>
+</html>

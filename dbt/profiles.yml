@@ -1,0 +1,8 @@
+jobease:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: "{{ env_var('JOBEASE_DUCKDB', 'data/warehouse.duckdb') }}"
+      schema: main
+      threads: 4

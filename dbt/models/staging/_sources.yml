@@ -1,0 +1,33 @@
+version: 2
+
+sources:
+  - name: landing
+    description: Raw rows written by the Python loaders (`jobease ingest-*`, `jobease fetch-counts`).
+    schema: landing
+    tables:
+      - name: ba_unemployment_monthly
+        description: >
+          Unemployed people per district and month, one slice per BA issue (`vintage`).
+          Issues overlap, so a month usually appears in two of them.
+        meta: {dagster: {asset_key: ["landing", "ba_unemployment_monthly"]}}
+      - name: destatis_municipalities
+        description: Every municipality in the Destatis GV-ISys directory, with AGS and population.
+        meta: {dagster: {asset_key: ["landing", "destatis_municipalities"]}}
+      - name: destatis_districts
+        description: Every district (Kreis) in GV-ISys, with its type code.
+        meta: {dagster: {asset_key: ["landing", "destatis_districts"]}}
+      - name: jobsuche_counts
+        description: One BA job-board listing count per batch, city and search term.
+        meta: {dagster: {asset_key: ["landing", "jobsuche_counts"]}}
+      - name: jobsuche_snapshot_queries
+        description: One row per day, city and search term of the daily snapshot, once all its pages are stored.
+        meta: {dagster: {asset_key: ["landing", "jobsuche_snapshot_queries"]}}
+      - name: jobsuche_listings
+        description: Every open listing returned for a day, city and term. Private, never exported.
+        meta: {dagster: {asset_key: ["landing", "jobsuche_listings"]}}
+      - name: bkg_areas
+        description: BKG VG250 state and district boundaries as GeoJSON text (longitude/latitude, simplified).
+        meta: {dagster: {asset_key: ["landing", "bkg_areas"]}}
+      - name: bkg_municipality_points
+        description: One point inside every municipality (BKG VG250), for placing city markers.
+        meta: {dagster: {asset_key: ["landing", "bkg_municipality_points"]}}

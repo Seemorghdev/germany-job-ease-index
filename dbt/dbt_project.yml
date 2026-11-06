@@ -1,0 +1,66 @@
+name: jobease
+version: "0.1.0"
+config-version: 2
+profile: jobease
+
+model-paths: ["models"]
+seed-paths: ["seeds"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+target-path: "target"
+clean-targets: ["target", "dbt_packages"]
+
+vars:
+  # Cities at or above this population are indexed.
+  min_population: 100000
+  # A city is ranked only if it holds at least this share of its district's population.
+  # Below that, the district's unemployment count mostly describes other places.
+  min_district_coverage: 0.5
+  # Pin a job-board batch (e.g. "20261105T150000Z"); default is the latest complete batch.
+  jobsuche_batch: null
+
+models:
+  jobease:
+    staging:
+      +schema: staging
+      +materialized: view
+    intermediate:
+      +schema: intermediate
+      +materialized: view
+    marts:
+      +schema: marts
+      +materialized: table
+
+seeds:
+  jobease:
+    +schema: reference
+    tiers:
+      +column_types: {tier: varchar, label: varchar, slug: varchar, weight: double}
+    tier_terms:
+      +column_types: {tier: varchar, term: varchar}
+    district_types:
+      +column_types: {type_code: varchar, label: varchar, is_kreisfrei: boolean}
+    controls_unemployment:
+      +column_types: {period: date, district_code: varchar, unemployed: integer, source: varchar}
+    city_search_overrides:
+      +column_types: {ags: varchar, search_name: varchar, reason: varchar}
+    lands:
+      +column_types: {land_code: varchar, land_name: varchar}
+    unemployment_gap_reasons:
+      +column_types:
+        district_code: varchar
+        kind: varchar
+        from_month: date
+        to_month: date
+        reason: varchar
+        source: varchar
+    district_changes:
+      +column_types:
+        district_code: varchar
+        district_name: varchar
+        change: varchar
+        effective: date
+        counterpart_code: varchar
+        type_code: varchar
+        municipality_ags: varchar
+        source: varchar

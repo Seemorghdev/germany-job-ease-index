@@ -1,0 +1,46 @@
+version: 2
+
+seeds:
+  - name: district_changes
+    description: >
+      District reforms since 2005. `created`: a new district split off `counterpart_code`
+      (e.g. a city leaving its Landkreis). `abolished`: the district merged into
+      `counterpart_code`. `boundary`: municipalities moved between this district and
+      `counterpart_code`, both of which continue. The BA restates every month of an issue
+      on the boundaries in force when it was published, so a reform shows up as a series
+      that starts or ends early, or (for `boundary`) as a step between overlapping issues.
+      `type_code` and `municipality_ags` (the city's AGS in the Destatis edition) are needed
+      only while the Destatis directory still predates a `created` reform.
+    columns:
+      - name: district_code
+        data_tests:
+          - unique
+          - not_null
+          - matches_pattern: {arguments: {pattern: '[0-9]{5}'}}
+      - name: change
+        data_tests:
+          - not_null
+          - accepted_values: {arguments: {values: [created, abolished, boundary]}}
+      - name: effective
+        data_tests: [not_null]
+      - name: counterpart_code
+        data_tests:
+          - not_null
+          - matches_pattern: {arguments: {pattern: '[0-9]{5}'}}
+      - name: type_code
+        data_tests:
+          - not_null:
+              config: {where: "change = 'created'"}
+          - relationships:
+              arguments: {to: ref('district_types'), field: type_code}
+      - name: source
+        data_tests: [not_null]
+
+  - name: unemployment_gap_reasons
+    description: >
+      Why a district has no count in some months, for gaps that aren't a district reform
+      (those are explained by district_changes).
+    columns:
+      - name: kind
+        data_tests:
+          - accepted_values: {arguments: {values: [starts, ends, gap, never]}}

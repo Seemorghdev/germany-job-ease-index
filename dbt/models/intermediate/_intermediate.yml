@@ -1,0 +1,92 @@
+version: 2
+
+models:
+  - name: int_unemployment_latest
+    description: Unemployed people per district in the latest loaded reporting month.
+    columns:
+      - name: district_code
+        data_tests: [unique, not_null]
+
+  - name: int_unemployment_monthly
+    description: One count per month and district, from the newest issue covering the month.
+    data_tests:
+      - unique_combination:
+          arguments: {combination: [period, district_code]}
+
+  - name: int_months
+    description: The month spine of the unemployment history, with no gaps.
+    columns:
+      - name: month_start
+        data_tests: [unique, not_null]
+
+  - name: int_unemployment_gaps
+    description: >
+      Runs of months in which a district has no count, with the kind of run (starts, ends,
+      gap, never) and the months that identify it in seeds/unemployment_gap_reasons.csv.
+    data_tests:
+      - unique_combination:
+          arguments: {combination: [district_code, gap_start]}
+
+  - name: int_districts
+    description: Districts on current boundaries, with their type.
+    columns:
+      - name: district_code
+        data_tests: [unique, not_null]
+      - name: district_type
+        data_tests: [not_null]
+
+  - name: int_municipalities
+    description: Municipalities of the latest Destatis edition, on current district boundaries.
+    columns:
+      - name: ags
+        data_tests: [unique, not_null]
+
+  - name: int_district_population
+    description: Residents per current district.
+    columns:
+      - name: district_code
+        data_tests: [unique, not_null]
+
+  - name: int_cities
+    description: >
+      Indexed cities (population ≥ var `min_population`) with their district, district type
+      and `district_coverage`, the city's share of its district's population.
+    columns:
+      - name: ags
+        data_tests: [unique, not_null]
+      - name: district_name
+        description: Null means the AGS points to a district that isn't in the directory.
+        data_tests: [not_null]
+      - name: district_type
+        description: Null means an unknown GV-ISys type code; add it to seeds/district_types.csv.
+        data_tests: [not_null]
+      - name: is_kreisfrei
+        data_tests: [not_null]
+      - name: district_coverage
+        data_tests:
+          - not_null
+          - accepted_range: {arguments: {min_value: 0, max_value: 1}}
+
+  - name: int_jobsuche__batches
+    description: Completeness of each job-board batch against the current cities and terms.
+    columns:
+      - name: batch_id
+        data_tests: [unique, not_null]
+
+  - name: int_city_listings
+    description: Summed listing counts per city and tier from the chosen complete batch.
+    data_tests:
+      - unique_combination:
+          arguments: {combination: [ags, tier]}
+
+  - name: int_snapshot_days
+    description: Completeness of each daily snapshot against the current cities and terms.
+    columns:
+      - name: snapshot_date
+        data_tests: [unique, not_null]
+
+  - name: int_listing_days
+    description: One row per complete snapshot day and listing, across cities and terms.
+    data_tests:
+      - unique_combination:
+          arguments: {combination: [snapshot_date, reference]}

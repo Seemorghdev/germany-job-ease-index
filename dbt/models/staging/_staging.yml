@@ -1,0 +1,99 @@
+version: 2
+
+models:
+  - name: stg_ba__unemployment
+    description: Unemployed people per BA issue (`vintage`), month and district.
+    data_tests:
+      - unique_combination:
+          arguments: {combination: [vintage, period, district_code]}
+    columns:
+      - name: district_code
+        data_tests:
+          - not_null
+          - matches_pattern: {arguments: {pattern: '[0-9]{5}'}}
+      - name: unemployed
+        description: Null unless `value_status` is `value`.
+        data_tests:
+          - accepted_range: {arguments: {min_value: 1}}
+      - name: value_status
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments: {values: [value, suppressed, empty, zero]}
+
+  - name: stg_destatis__municipalities
+    description: Municipalities with their 8-digit AGS; `district_code` is its first five digits.
+    data_tests:
+      - unique_combination:
+          arguments: {combination: [edition, ags]}
+    columns:
+      - name: ags
+        data_tests:
+          - not_null
+          - matches_pattern: {arguments: {pattern: '[0-9]{8}'}}
+      - name: population
+        data_tests:
+          - accepted_range: {arguments: {min_value: 0}}
+
+  - name: stg_destatis__districts
+    description: Districts (Kreise) with their GV-ISys type code.
+    data_tests:
+      - unique_combination:
+          arguments: {combination: [edition, district_code]}
+    columns:
+      - name: district_code
+        data_tests:
+          - not_null
+          - matches_pattern: {arguments: {pattern: '[0-9]{5}'}}
+
+  - name: stg_jobsuche__counts
+    description: Job-board listing counts, one per batch, city and search term.
+    data_tests:
+      - unique_combination:
+          arguments: {combination: [batch_id, ags, tier, term]}
+    columns:
+      - name: listings
+        data_tests:
+          - not_null
+          - accepted_range: {arguments: {min_value: 0}}
+      - name: tier
+        data_tests:
+          - relationships:
+              arguments: {to: ref('tiers'), field: tier}
+
+  - name: stg_jobsuche__snapshot_queries
+    description: The daily snapshot's queries, one per day, city and search term.
+    data_tests:
+      - unique_combination:
+          arguments: {combination: [snapshot_date, ags, tier, term]}
+
+  - name: stg_jobsuche__listings
+    description: Listings per day, city and search term. A listing found by several terms appears once per term.
+    data_tests:
+      - unique_combination:
+          arguments: {combination: [snapshot_date, ags, tier, term, reference]}
+    columns:
+      - name: reference
+        data_tests: [not_null]
+
+  - name: stg_bkg__areas
+    description: State and district boundaries of the latest BKG edition.
+    data_tests:
+      - unique_combination:
+          arguments: {combination: [level, code]}
+    columns:
+      - name: level
+        data_tests:
+          - accepted_values: {arguments: {values: [land, district]}}
+
+  - name: stg_bkg__municipality_points
+    description: One point per municipality, latest BKG edition.
+    columns:
+      - name: ags
+        data_tests: [unique, not_null]
+      - name: lon
+        data_tests:
+          - accepted_range: {arguments: {min_value: 5.5, max_value: 15.5}}
+      - name: lat
+        data_tests:
+          - accepted_range: {arguments: {min_value: 47.0, max_value: 55.2}}

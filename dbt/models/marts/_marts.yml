@@ -1,0 +1,165 @@
+version: 2
+
+models:
+  - name: mart_city_tier_ease
+    description: >
+      Listings per 1,000 unemployed in the city's district, per tier, with the tier rank.
+      Only cities that hold at least `min_district_coverage` of their district are ranked.
+    data_tests:
+      - unique_combination:
+          arguments: {combination: [ags, tier]}
+    columns:
+      - name: listings
+        description: Null means the chosen batch has no count for this city and tier.
+        data_tests: [not_null]
+      - name: district_unemployed
+        data_tests: [not_null]
+      - name: tier_rank
+        data_tests:
+          - not_null:
+              config: {where: "is_ranked"}
+
+  - name: mart_city_ease
+    description: One row per indexed city with the combined rank across tiers.
+    columns:
+      - name: ags
+        data_tests: [unique, not_null]
+      - name: district_unemployed
+        data_tests: [not_null]
+      - name: unemployed_share_of_population
+        description: >
+          Plausibility check on the denominator. Germany's unemployed are roughly 3% of the
+          population; values far outside 0.5–10% mean a wrong district or a wrong column.
+        data_tests:
+          - accepted_range:
+              arguments: {min_value: 0.005, max_value: 0.10}
+      - name: combined_rank
+        data_tests:
+          - not_null:
+              config: {where: "is_ranked"}
+          - unique:
+              config: {where: "is_ranked"}
+
+  - name: fct_unemployment_monthly
+    description: >
+      Unemployed people per district and month (BA), each month from the newest issue that
+      covers it. A district-month without a count has a `value_status` other than `value`,
+      or no row at all; int_unemployment_gaps lists both, and each needs a reason.
+    data_tests:
+      - unique_combination:
+          arguments: {combination: [period, district_code]}
+    columns:
+      - name: period
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('dim_date'), field: month_start}
+      - name: district_code
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('dim_district'), field: district_code}
+
+  - name: dim_date
+    description: One row per month of the unemployment history.
+    columns:
+      - name: month_start
+        data_tests: [unique, not_null]
+      - name: districts_reported
+        description: >
+          Districts with a count. Germany had 439 districts in 2005 and about 400 since 2011;
+          a value outside 395-445 means an issue was read incompletely.
+        data_tests:
+          - accepted_range: {arguments: {min_value: 395, max_value: 445}}
+      - name: national_unemployed
+        description: Sum over districts. Between 2 and 5.5 million since 2005.
+        data_tests:
+          - not_null
+          - accepted_range: {arguments: {min_value: 1500000, max_value: 6000000}}
+
+  - name: dim_district
+    description: Every district code in the history, current or abolished.
+    columns:
+      - name: district_code
+        data_tests: [unique, not_null]
+      - name: land_name
+        data_tests: [not_null]
+      - name: district_type
+        description: From int_districts (Destatis plus recorded reforms); null for abolished codes.
+        data_tests:
+          - not_null:
+              config: {where: "is_current"}
+
+  - name: fct_listing_snapshot
+    description: >
+      One row per complete snapshot day and listing (private, never exported). Grain:
+      snapshot_date x reference, deduplicated across the cities and terms that found it.
+    data_tests:
+      - unique_combination:
+          arguments: {combination: [snapshot_date, reference]}
+    columns:
+      - name: reference
+        data_tests: [not_null]
+
+  - name: mart_listing_lifetimes
+    description: Per listing, first and last seen, and lifetime since first publication.
+    columns:
+      - name: reference
+        data_tests: [unique, not_null]
+      - name: lifetime_days
+        data_tests:
+          - not_null
+          - accepted_range: {arguments: {min_value: 0}}
+      - name: days_missing
+        description: Days between first and last seen on which the listing wasn't returned.
+        data_tests:
+          - accepted_range: {arguments: {min_value: 0}}
+
+  - name: mart_tier_lifetimes
+    description: Lifetime distribution per tier, the S2 result.
+    columns:
+      - name: tier
+        data_tests: [unique, not_null]
+
+  - name: mart_city_listing_profile
+    description: >
+      Open listings per snapshot day, city and tier, with shares of full-time, part-time,
+      Minijob and career-changer listings and their median age. Aggregates only
+      (publishable), built from the private listing snapshots.
+    data_tests:
+      - unique_combination:
+          arguments: {combination: [snapshot_date, ags, tier]}
+    columns:
+      - name: share_part_time
+        data_tests:
+          - accepted_range: {arguments: {min_value: 0, max_value: 1}}
+      - name: median_age_days
+        data_tests:
+          - accepted_range: {arguments: {min_value: 0}}
+
+  - name: mart_district_map
+    description: Every current district with its boundary and unemployment figures, for the map.
+    columns:
+      - name: district_code
+        data_tests: [unique, not_null]
+      - name: geometry
+        description: Null means the BKG edition has no shape for this district code.
+        data_tests: [not_null]
+      - name: population
+        data_tests: [not_null]
+      - name: unemployed_per_1000_residents
+        description: Unemployed per 1,000 residents of all ages (not the official rate, which uses the labour force).
+        data_tests:
+          - not_null
+          - accepted_range: {arguments: {min_value: 5, max_value: 120}}
+
+  - name: mart_city_map
+    description: Every indexed city with its position and tier rates, for the map.
+    columns:
+      - name: ags
+        data_tests: [unique, not_null]
+      - name: lon
+        description: Null means the BKG edition has no municipality with this AGS.
+        data_tests: [not_null]
+      - name: lat
+        data_tests: [not_null]

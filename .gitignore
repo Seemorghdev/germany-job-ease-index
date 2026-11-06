@@ -1,0 +1,31 @@
+# Python
+.venv/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.DS_Store
+
+# dbt
+dbt/target/
+dbt/logs/
+dbt/dbt_packages/
+# dbt's per-machine anonymous id
+dbt/.user.yml
+
+# Dagster
+.dagster/
+tmp*/
+
+# Data: source files, raw responses and the warehouse stay local.
+# Only reviewed aggregate exports are committed.
+data/inputs/
+data/raw/
+data/*.duckdb
+data/*.duckdb.wal
+data/logs/
+# marimo caches cell outputs here; level-1 outputs can hold private listing data.
+__marimo__/
+# The tour video is rebuilt with `make tour` and posted by hand; too large for git.
+docs/tour/*.mp4

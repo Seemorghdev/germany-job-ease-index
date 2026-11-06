@@ -1,0 +1,71 @@
+# Pipeline inputs. Relative paths resolve against the repository root.
+# JOBEASE_DUCKDB and JOBEASE_CONFIG environment variables override these.
+
+[paths]
+warehouse = "data/warehouse.duckdb"
+raw = "data/raw"
+exports = "data/exports"
+
+[ba_unemployment]
+# BA "Arbeitslose nach Ländern und Kreisen" issues, one ZIP (holding the .xlsx) per file.
+# Each issue covers January of the previous year up to its reporting month, so one
+# December issue per year gives the full history. Every file in the folder is loaded.
+dir = "data/inputs/ba_unemployment"
+inner_suffix = "_Arbeitslose.xlsx"
+sheet = "Übersicht_Kreise"
+label_column = "A"   # "<5-digit district code> <name>"; month columns are found by header
+# `jobease download-ba` fetches issues from here ({yyyymm} = reporting month). The BA
+# throttles hard, so downloads are slow on purpose and wait out a 429 for up to 15 minutes.
+issue_url = "https://statistik.arbeitsagentur.de/Statistikdaten/Detail/{yyyymm}/iiia4/gemeinde-arbeitslose-quoten/arbeitslose-quoten-dlk-0-{yyyymm}-zip.zip"
+download_interval_s = 60
+download_max_retries = 4
+download_max_backoff_s = 900
+
+[destatis_gvisys]
+# Destatis Gemeindeverzeichnis (GV-ISys), all municipalities with AGS and population.
+file = "data/inputs/destatis_gvisys_2025.xlsx"
+edition = "2025"
+# sheet = "..."   # optional; default picks the first sheet whose name contains "Gemeinde"
+
+[destatis_gvisys.columns]
+record_type = "A"
+text_code = "B"
+land = "C"
+rb = "D"
+kreis = "E"
+vb = "F"
+gem = "G"
+name = "H"
+area_km2 = "I"
+population = "J"
+
+[bkg_vg250]
+# BKG Verwaltungsgebiete 1:250 000, Stand 01.01. (GeoPackage, UTM32): boundaries on the
+# reform state of 1 January, so districts created on that day (Hanau 2026) are included.
+# Licence dl-de/by-2-0: credit "© GeoBasis-DE / BKG (2026)" wherever the map is shown.
+file = "data/inputs/bkg_vg250_2026-01-01.zip"
+edition = "2026-01-01"
+inner_suffix = ".gpkg"
+source_crs = "EPSG:25832"
+land_layer = "vg250_lan"
+district_layer = "vg250_krs"
+municipality_layer = "vg250_gem"
+land_area_gf = [4]        # Geofaktor 4 = land area; 1-3 are water and unstructured areas
+simplify_m = 500          # line simplification; 1 px on the 690 px-wide map is ~1.2 km
+
+[cities]
+min_population = 100000
+
+[jobsuche]
+base_url = "https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v6/jobs"
+api_key = "jobboerse-jobsuche"
+radius_km = 0
+window_days = 30
+min_interval_s = 1.0
+max_retries = 5
+timeout_s = 30.0
+# Daily listing snapshots (S2): every open listing per city and term, page by page.
+# Listings stay in the local warehouse and are never exported.
+snapshot_page_size = 100
+snapshot_max_pages = 40       # per city and term; a query with more is marked truncated
+snapshot_lock_wait_s = 1800   # wait this long for a DuckDB lock (e.g. an open DuckDB UI)

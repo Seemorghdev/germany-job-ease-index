@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Where in Germany is it easiest to land a job? A tour</title>
+<style>
+  body { margin: 0; background: #ececf0; color: #1f1f24;
+         font-family: system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
+  main { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 16px; }
+  #stage svg { display: block; height: calc(100vh - 96px); width: auto; background: #fff;
+               box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12); }
+  .controls { display: flex; gap: 10px; align-items: center; }
+  .controls input { width: 420px; }
+  button { font: inherit; padding: 6px 14px; border: 1px solid #ccc; border-radius: 6px;
+           background: #fff; cursor: pointer; }
+  .error { color: #b00020; }
+  /* Recording: exactly one frame, nothing else on the page. */
+  body.capture { background: #fff; }
+  body.capture main { padding: 0; }
+  body.capture #stage svg { height: auto; width: 1080px; box-shadow: none; }
+  body.capture .controls { display: none; }
+</style>
+</head>
+<body>
+<main>
+  <div id="stage">Loading…</div>
+  <div class="controls">
+    <button id="play" type="button">Pause</button>
+    <input id="scrub" type="range" min="0" max="1" step="0.001" value="0">
+    <span id="clock">0.0 s</span>
+  </div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+<script src="../map/data.js"></script>
+<script>
+"use strict";
+
+// The tour is a pure function of time: TOUR.render(t) draws the frame at t seconds, with
+// no state carried between frames. The recorder steps through t at a fixed rate, so the
+// video is identical on every run; the preview below just calls render() in real time.
+
+const W = 1080;
+const H = 1350;
+const FPS = 30;
+const FONT = 'system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif';
+const INK = "#1f1f24";
+const MUTED = "#6b6b75";
+const MAP_EXTENT = [[90, 190], [990, 1000]];  // Germany at the full view, above the card
+const FOCUS = [W / 2, 590];                    // where the camera puts the city it visits
+const ZOOM = 4.5;
+const BERLIN = "11000000";
+
+// Seconds.
+const INTRO = 3.0;
+const FLY = 1.6;
+const HOLD = 2.6;
+const FADE = 0.25;
+const COUNT = 0.9;
+const FLY_OUT = 2.0;
+const OUTRO = 4.5;
+
+const clamp = (x) => Math.max(0, Math.min(1, x));
+const progress = (t, start, length) => clamp((t - start) / length);
+
+function fmt(value, digits = 0) {
+  return value == null ? "–" : value.toLocaleString("en-GB", {
+    minimumFractionDigits: digits, maximumFractionDigits: digits,
+  });
+}
+
+function monthLabel(period) {
+  if (!period) return "";
+  const [year, month] = period.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, 1)).toLocaleString("en-GB", {
+    month: "long", year: "numeric", timeZone: "UTC",
+  });
+}
+
+function text(parent, x, y, content, attrs = {}) {
+  return parent.append("text").attr("x", x).attr("y", y).text(content)
+    .attr("fill", attrs.fill || INK).attr("font-size", attrs.size || 16)
+    .attr("font-weight", attrs.weight || 400).attr("text-anchor", attrs.anchor || "start");
+}
+
+// A camera view is [x, y, width] in projected pixels: the point (x, y) sits at FOCUS and
+// `width` pixels of the full map fill the frame. This is the form d3.interpolateZoom
+// takes, which zooms out, pans and zooms back in along the smoothest path.
+const FULL_VIEW = [FOCUS[0], FOCUS[1], W];
+
+function cameraTransform([x, y, width]) {
+  const k = W / width;
+  return { k, tx: FOCUS[0] - x * k, ty: FOCUS[1] - y * k };
+}
+
+function buildTimeline(stops) {
+  const scenes = [{ kind: "intro", start: 0, end: INTRO }];
+  let t = INTRO;
+  let from = FULL_VIEW;
+  for (const stop of stops) {
+    scenes.push({ kind: "fly", start: t, end: t + FLY, path: d3.interpolateZoom(from, stop.view) });
+    t += FLY;
+    scenes.push({ kind: "hold", start: t, end: t + HOLD, stop });
+    t += HOLD;
+    from = stop.view;
+  }
+  scenes.push({ kind: "fly", start: t, end: t + FLY_OUT, path: d3.interpolateZoom(from, FULL_VIEW) });
+  t += FLY_OUT;
+  scenes.push({ kind: "outro", start: t, end: t + OUTRO });
+  return { scenes, duration: t + OUTRO };
+}
+
+function sceneAt(scenes, t) {
+  return scenes.find((s) => t < s.end) || scenes[scenes.length - 1];
+}
+
+function build(data) {
+  const cities = data.cities.filter((c) => c.lon != null && c.lat != null);
+  const ranked = cities.filter((c) => c.is_ranked && c.rank != null).sort((a, b) => a.rank - b.rank);
+  const top = ranked.slice(0, 5);
+  const berlin = cities.find((c) => c.ags === BERLIN);
+  if (!top.length || !berlin || !berlin.rates.C) {
+    throw new Error("data.js has no ranked cities or no Berlin entry-level rate.");
+  }
+
+  const projection = d3.geoTransverseMercator().rotate([-10.45, -51.16])
+    .fitExtent(MAP_EXTENT, data.lands);
+  const path = d3.geoPath(projection);
+  const at = (city) => projection([city.lon, city.lat]);
+
+  // Same colours as the static map.
+  const perThousand = data.districts.features.map((f) => f.properties.per_1000).filter((v) => v != null);
+  const districtColor = d3.scaleQuantile().domain(perThousand)
+    .range(d3.quantize(d3.interpolateRgb("#f2f0f6", "#6f6290"), 6));
+  const entryRates = ranked.map((c) => c.rates.C).filter((v) => v != null);
+  const cityColor = d3.scaleSequential((t) => d3.interpolateGreens(0.35 + 0.65 * t))
+    .domain(d3.extent(entryRates));
+  const radius = d3.scaleSqrt().domain(d3.extent(cities, (c) => c.population)).range([2.5, 13]);
+
+  // Berlin first as the baseline, then the top five counting down to #1.
+  const stops = [berlin, ...top.slice().reverse()].map((city) => {
+    const [x, y] = at(city);
+    return { city, view: [x, y, W / ZOOM], isBaseline: city.ags === BERLIN };
+  });
+  const { scenes, duration } = buildTimeline(stops);
+
+  const svg = d3.create("svg")
+    .attr("xmlns", "http://www.w3.org/2000/svg")
+    .attr("viewBox", `0 0 ${W} ${H}`).attr("width", W).attr("height", H)
+    .attr("font-family", FONT);
+  svg.append("rect").attr("width", W).attr("height", H).attr("fill", "#ffffff");
+
+  // World layer: everything the camera moves. Strokes keep their width at any zoom.
+  const world = svg.append("g");
+  const districtLayer = world.append("g");
+  districtLayer.selectAll("path").data(data.districts.features).join("path")
+    .attr("d", path)
+    .attr("fill", (d) => d.properties.per_1000 == null ? "#eeeeee" : districtColor(d.properties.per_1000))
+    .attr("stroke", "#ffffff").attr("stroke-width", 0.5).attr("vector-effect", "non-scaling-stroke");
+  world.append("g").selectAll("path").data(data.lands.features).join("path")
+    .attr("d", path).attr("fill", "none")
+    .attr("stroke", "#5f5f6b").attr("stroke-width", 1).attr("vector-effect", "non-scaling-stroke");
+  const cityLayer = world.append("g");
+  const dots = cityLayer.selectAll("circle")
+    .data(cities.slice().sort((a, b) => b.population - a.population)).join("circle")
+    .attr("cx", (d) => at(d)[0]).attr("cy", (d) => at(d)[1])
+    .attr("fill", (d) => d.is_ranked ? cityColor(d.rates.C) : "#ffffff")
+    .attr("stroke", (d) => d.is_ranked ? "#ffffff" : "#8a8a95")
+    .attr("vector-effect", "non-scaling-stroke");
+
+  // Screen layer: drawn in frame pixels, placed through the camera each frame.
+  const marker = svg.append("g");
+  const ring = marker.append("circle").attr("fill", "none").attr("stroke", INK).attr("stroke-width", 3);
+  const markerLabel = text(marker, 0, 0, "", { size: 30, weight: 700 })
+    .attr("stroke", "#ffffff").attr("stroke-width", 6).attr("paint-order", "stroke");
+
+  const badges = svg.append("g");
+  const badge = badges.selectAll("g").data(top).join("g");
+  badge.append("circle").attr("cx", 18).attr("cy", -18).attr("r", 14).attr("fill", INK)
+    .attr("stroke", "#ffffff").attr("stroke-width", 2);
+  badge.append("text").attr("x", 18).attr("y", -13).attr("text-anchor", "middle")
+    .attr("font-size", 15).attr("font-weight", 700).attr("fill", "#ffffff").text((d) => d.rank);
+  badge.append("text").attr("x", 38).attr("y", -12).attr("font-size", 18).attr("font-weight", 600)
+    .attr("fill", INK).attr("stroke", "#ffffff").attr("stroke-width", 4).attr("paint-order", "stroke")
+    .text((d) => d.city);
+
+  // Title band, always on top of the map.
+  svg.append("rect").attr("width", W).attr("height", 172).attr("fill", "#ffffff").attr("opacity", 0.94);
+  text(svg, 48, 72, "Where in Germany is it easiest to land a job?", { size: 40, weight: 700 });
+  text(svg, 48, 114,
+    `Entry-level job listings per 1,000 unemployed · ${cities.length} cities with 100,000+ residents`,
+    { size: 21, fill: MUTED });
+  text(svg, 48, 146,
+    `Unemployment: ${monthLabel(data.unemployment_period)} · listings posted in the last 30 days`,
+    { size: 18, fill: MUTED });
+
+  // The city card.
+  const CARD = { x: 60, y: 1020, w: 960, h: 260 };
+  const card = svg.append("g").attr("transform", `translate(${CARD.x},${CARD.y})`);
+  card.append("rect").attr("width", CARD.w).attr("height", CARD.h).attr("rx", 18)
+    .attr("fill", "#ffffff").attr("stroke", "#e4e4ea").attr("stroke-width", 1.5);
+  const cardTag = text(card, 40, 56, "", { size: 22, weight: 700, fill: MUTED });
+  const cardName = text(card, 40, 100, "", { size: 44, weight: 700 });
+  const cardValue = text(card, 40, 192, "", { size: 84, weight: 800 });
+  text(card, 40, 226, "entry-level listings per 1,000 unemployed", { size: 20, fill: MUTED });
+  const cardRatio = text(card, CARD.w - 40, 150, "", { size: 72, weight: 800, anchor: "end" });
+  const cardRatioNote = text(card, CARD.w - 40, 188, "", { size: 20, fill: MUTED, anchor: "end" });
+  const cardOther = text(card, CARD.w - 40, 226, "", { size: 18, fill: MUTED, anchor: "end" });
+
+  // The end card.
+  const ratio = top[0].rates.C / berlin.rates.C;
+  const end = svg.append("g").attr("transform", `translate(${CARD.x},${CARD.y})`);
+  end.append("rect").attr("width", CARD.w).attr("height", CARD.h).attr("rx", 18).attr("fill", INK);
+  text(end, 40, 78, `${top[0].city} has ${fmt(ratio, 1)}× as many entry-level`,
+    { size: 38, weight: 700, fill: "#ffffff" });
+  text(end, 40, 124, "openings per job seeker as Berlin.", { size: 38, weight: 700, fill: "#ffffff" });
+  text(end, 40, 196, "One day of data. Daily snapshots are running.", { size: 24, fill: "#c9c9d2" });
+  text(end, 40, 232, "Want the 7-day version?", { size: 24, weight: 700, fill: "#9be3a8" });
+
+  // Footer.
+  text(svg, 48, 1314, `Data: ${data.sources.slice(0, 2).join(" · ")}`, { size: 13, fill: MUTED });
+  text(svg, 48, 1334, `${data.sources.slice(2).join(" · ")} · germany-job-ease-index`, { size: 13, fill: MUTED });
+
+  function render(t) {
+    const scene = sceneAt(scenes, t);
+    const view = scene.kind === "fly"
+      ? scene.path(d3.easeCubicInOut(progress(t, scene.start, scene.end - scene.start)))
+      : scene.kind === "hold" ? scene.stop.view : FULL_VIEW;
+    const { k, tx, ty } = cameraTransform(view);
+    const toScreen = ([x, y]) => [tx + x * k, ty + y * k];
+
+    world.attr("transform", `translate(${tx},${ty}) scale(${k})`);
+    // Dots grow with the square root of the zoom, so they stay dots, not discs.
+    dots.attr("r", (d) => radius(d.population) / Math.sqrt(k));
+
+    // Intro: districts shade in, then the cities appear.
+    districtLayer.attr("opacity", d3.easeCubicOut(progress(t, 0, 1.2)));
+    cityLayer.attr("opacity", progress(t, 1.0, 1.0));
+
+    // The card follows the stop: fade in, count up, fade out.
+    if (scene.kind === "hold") {
+      const { city, isBaseline } = scene.stop;
+      const local = t - scene.start;
+      const shown = Math.min(progress(local, 0, FADE), progress(scene.end - t, 0, FADE));
+      const counted = d3.easeCubicOut(progress(local, 0.1, COUNT));
+      card.attr("opacity", shown);
+      cardTag.text(isBaseline ? "THE BASELINE" : `#${city.rank} OF ${ranked.length}`);
+      cardName.text(city.city);
+      cardValue.text(fmt(city.rates.C * counted)).attr("fill", d3.color(cityColor(city.rates.C)).darker(0.6));
+      cardRatio.text(isBaseline ? "1.0×" : `${fmt((city.rates.C / berlin.rates.C) * counted, 1)}×`);
+      cardRatioNote.text(isBaseline ? "the capital, our yardstick" : "Berlin's rate");
+      cardOther.text(`Office ${fmt(city.rates.B)} · Tech ${fmt(city.rates.A)}`);
+
+      const [sx, sy] = toScreen(at(city));
+      const pulse = progress(local, 0, 0.8);
+      marker.attr("opacity", shown);
+      ring.attr("cx", sx).attr("cy", sy).attr("r", 18 + 22 * d3.easeCubicOut(pulse))
+        .attr("stroke-opacity", 1 - 0.7 * pulse);
+      markerLabel.attr("x", sx + 30).attr("y", sy - 26).text(city.city);
+    } else {
+      card.attr("opacity", 0);
+      marker.attr("opacity", 0);
+    }
+
+    // Outro: the top five reappear together, then the headline.
+    const outro = scene.kind === "outro" ? t - scene.start : -1;
+    badges.attr("opacity", outro < 0 ? 0 : progress(outro, 0, 0.6));
+    badge.attr("transform", (d) => {
+      const [sx, sy] = toScreen(at(d));
+      return `translate(${sx},${sy})`;
+    });
+    end.attr("opacity", outro < 0 ? 0 : progress(outro, 0.6, 0.5));
+  }
+
+  return { node: svg.node(), render, duration };
+}
+
+const params = new URLSearchParams(location.search);
+const capture = params.has("capture");
+if (capture) document.body.classList.add("capture");
+const stage = document.getElementById("stage");
+
+window.TOUR = { width: W, height: H, fps: FPS, duration: 0, ready: false, error: null, render: () => {} };
+try {
+  if (!window.d3) throw new Error("D3 did not load (the page needs the internet for d3@7).");
+  if (!window.JOBEASE_MAP) throw new Error("../map/data.js is missing: run `jobease export-map` first.");
+  const tour = build(window.JOBEASE_MAP);
+  stage.replaceChildren(tour.node);
+  Object.assign(window.TOUR, { duration: tour.duration, render: tour.render, ready: true });
+  tour.render(0);
+
+  if (!capture) {
+    const play = document.getElementById("play");
+    const scrub = document.getElementById("scrub");
+    const clock = document.getElementById("clock");
+    let playing = true;
+    let t = 0;
+    let last = null;
+    const show = () => {
+      tour.render(t);
+      scrub.value = String(t / tour.duration);
+      clock.textContent = `${t.toFixed(1)} / ${tour.duration.toFixed(1)} s`;
+    };
+    const tick = (now) => {
+      if (playing && last != null) t = (t + (now - last) / 1000) % tour.duration;
+      last = now;
+      show();
+      requestAnimationFrame(tick);
+    };
+    play.addEventListener("click", () => {
+      playing = !playing;
+      play.textContent = playing ? "Pause" : "Play";
+    });
+    scrub.addEventListener("input", () => {
+      playing = false;
+      play.textContent = "Play";
+      t = Number(scrub.value) * tour.duration;
+      show();
+    });
+    requestAnimationFrame(tick);
+  }
+} catch (error) {
+  window.TOUR.error = error.message;
+  window.TOUR.ready = true;
+  const message = document.createElement("p");
+  message.className = "error";
+  message.textContent = `The tour could not be drawn: ${error.message}`;
+  stage.replaceChildren(message);
+  console.error(error);
+}
+</script>
+</body>
+</html>

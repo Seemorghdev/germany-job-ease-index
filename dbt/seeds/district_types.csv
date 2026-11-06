@@ -1,0 +1,6 @@
+type_code,label,is_kreisfrei
+41,Kreisfreie Stadt,true
+42,Stadtkreis,true
+43,Kreis,false
+44,Landkreis,false
+45,Regionalverband,false

@@ -1,0 +1,21 @@
+select
+    snapshot_date,
+    ags,
+    tier,
+    term,
+    reference,
+    title,
+    employer,
+    employer_hash,
+    occupation,
+    published_on,
+    changed_at,
+    postcode,
+    place,
+    full_time,
+    part_time,
+    marginal,
+    lateral_entry,
+    contract_duration,
+    pay_info
+from {{ source('landing', 'jobsuche_listings') }}
