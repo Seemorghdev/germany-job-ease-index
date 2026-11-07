@@ -1,7 +1,10 @@
 import marimo
 
-__generated_with = "0.10.0"
-app = marimo.App(width="medium", app_title="Where is it easiest to land a job?")
+__generated_with = "0.25.2"
+app = marimo.App(
+    width="medium",
+    app_title="Where is it easiest to land a job?",
+)
 
 
 @app.cell
@@ -198,22 +201,20 @@ def _(con, mo):
 
 @app.cell
 def _(mo):
-    mo.md(
-        """
-        ## Method and sources
+    mo.md("""
+    ## Method and sources
 
-        - **Listings:** BA Jobbörse, one count per city and search term (15 terms over
-          three tiers), posted in the last 30 days, within the city itself.
-        - **Unemployed:** Statistik der Bundesagentur für Arbeit, district level, checked
-          against four figures from BA press releases.
-        - **Cities and districts:** Destatis Gemeindeverzeichnis. Cities are matched to
-          districts by official code, never by name.
-        - **Pipeline:** Python loaders → DuckDB → dbt (staging, intermediate, marts, 100+
-          data tests) → Dagster. Source: `germany-job-ease-index`.
+    - **Listings:** BA Jobbörse, one count per city and search term (15 terms over
+      three tiers), posted in the last 30 days, within the city itself.
+    - **Unemployed:** Statistik der Bundesagentur für Arbeit, district level, checked
+      against four figures from BA press releases.
+    - **Cities and districts:** Destatis Gemeindeverzeichnis. Cities are matched to
+      districts by official code, never by name.
+    - **Pipeline:** Python loaders → DuckDB → dbt (staging, intermediate, marts, 100+
+      data tests) → Dagster. Source: `germany-job-ease-index`.
 
-        Quelle: Statistik der Bundesagentur für Arbeit, eigene Berechnungen.
-        """
-    )
+    Quelle: Statistik der Bundesagentur für Arbeit, eigene Berechnungen.
+    """)
     return
 
 

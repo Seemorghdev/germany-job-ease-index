@@ -62,7 +62,7 @@ Needs Python 3.12.
 ```sh
 make setup        # virtualenv, dependencies, headless Chromium for the video
 make check        # lint, types, unit tests, dbt parse (offline, what CI runs)
-.venv/bin/jobease download-ba 2008 2025   # BA district issues, one per year (slow: the BA throttles)
+.venv/bin/python -m jobease download-ba 2008 2025   # BA district issues, one per year (slow: the BA throttles)
 make ingest       # load the BA issues, the Destatis municipality list and the BKG boundaries
 make fetch        # job-board counts, ~20-30 min, resumable: jobease fetch-counts --batch-id <id>
 make build        # dbt seeds, models and data tests

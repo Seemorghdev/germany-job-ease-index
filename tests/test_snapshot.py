@@ -200,8 +200,11 @@ def test_launchd_plist_runs_the_snapshot_from_the_repo(tmp_path: Path) -> None:
     job = plistlib.loads(launchd.plist(tmp_path / "My Repo", hour=9, minute=0))
     assert job["Label"] == launchd.LABEL
     assert job["ProgramArguments"] == [
-        str(tmp_path / "My Repo" / ".venv" / "bin" / "jobease"),
+        str(tmp_path / "My Repo" / ".venv" / "bin" / "python"),
+        "-m",
+        "jobease",
         "snapshot-listings",
     ]
+    assert job["EnvironmentVariables"] == {"PYTHONUNBUFFERED": "1"}
     assert job["StartCalendarInterval"] == {"Hour": 9, "Minute": 0}
     assert job["WorkingDirectory"] == str(tmp_path / "My Repo")

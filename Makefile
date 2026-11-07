@@ -1,6 +1,8 @@
 PYTHON ?= python3.12
 VENV   := .venv
 BIN    := $(VENV)/bin
+# Through Python, not the .venv/bin/jobease launcher, which pip can leave non-executable.
+JOBEASE := $(BIN)/python -m jobease
 
 export PATH := $(CURDIR)/$(BIN):$(PATH)
 
@@ -36,32 +38,32 @@ check: lint typecheck test
 
 ## Load the local source files into the warehouse.
 ingest:
-	$(BIN)/jobease ingest-ba
-	$(BIN)/jobease ingest-gvisys
-	$(BIN)/jobease ingest-bkg
+	$(JOBEASE) ingest-ba
+	$(JOBEASE) ingest-gvisys
+	$(JOBEASE) ingest-bkg
 
 ## Fetch listing counts from the BA job board (~20-30 min; resumable with --batch-id).
 fetch:
-	$(BIN)/jobease fetch-counts
+	$(JOBEASE) fetch-counts
 
 ## Store today's open listings (S2; ~30-60 min; rerun the same day to resume).
 snapshot:
-	$(BIN)/jobease snapshot-listings
+	$(JOBEASE) snapshot-listings
 
 ## Level 3: the district map, docs/map/index.html + data.js.
 map:
-	$(BIN)/jobease export-map
+	$(JOBEASE) export-map
 
 ## Level 3: the city-to-city tour as an MP4 for LinkedIn (reads docs/map/data.js).
 tour: map
-	$(BIN)/jobease record-tour
+	$(JOBEASE) record-tour
 
 ## Seeds, models and data tests, in dependency order.
 build:
 	$(BIN)/dbt build $(DBT_FLAGS)
 
 export:
-	$(BIN)/jobease export
+	$(JOBEASE) export
 
 ## Run the level-2 notebooks and export each as a standalone page in docs/notebooks/.
 ## Level 1 (notebooks/level1_learn) reads private tables and is never exported.
