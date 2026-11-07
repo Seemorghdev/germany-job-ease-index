@@ -86,6 +86,8 @@ class JobsucheSettings:
     snapshot_page_size: int
     snapshot_max_pages: int
     snapshot_lock_wait_s: float
+    snapshot_retry_passes: int
+    snapshot_retry_cooldown_s: float
 
 
 @dataclass(frozen=True)
@@ -173,6 +175,8 @@ def load_settings(config_path: Path | None = None) -> Settings:
             snapshot_page_size=int(_require(js, "snapshot_page_size", "jobsuche")),
             snapshot_max_pages=int(_require(js, "snapshot_max_pages", "jobsuche")),
             snapshot_lock_wait_s=float(_require(js, "snapshot_lock_wait_s", "jobsuche")),
+            snapshot_retry_passes=int(_require(js, "snapshot_retry_passes", "jobsuche")),
+            snapshot_retry_cooldown_s=float(_require(js, "snapshot_retry_cooldown_s", "jobsuche")),
         ),
         bkg=BkgSettings(
             file=resolve(_require(bkg, "file", "bkg_vg250")),

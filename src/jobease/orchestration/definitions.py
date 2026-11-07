@@ -123,6 +123,11 @@ def jobsuche_counts() -> dg.MaterializeResult[None]:
 def jobsuche_snapshot() -> Iterator[dg.MaterializeResult[None]]:
     """Every open listing per city and search term, for today (private, never exported)."""
     summary = pipeline.snapshot_listings(SETTINGS)
+    if not summary.complete:
+        raise dg.Failure(
+            f"{summary.failed} snapshot queries still failing after every retry pass; "
+            "rerun the asset today to fetch them"
+        )
     yield dg.MaterializeResult(
         asset_key=_key("jobsuche_snapshot_queries"),
         metadata={

@@ -69,3 +69,8 @@ timeout_s = 30.0
 snapshot_page_size = 100
 snapshot_max_pages = 40       # per city and term; a query with more is marked truncated
 snapshot_lock_wait_s = 1800   # wait this long for a DuckDB lock (e.g. an open DuckDB UI)
+# The BA server drops connections in bursts (7 Nov: "Server disconnected", SSL EOF for a
+# few minutes). A query that still fails after its retries is set aside and tried again
+# after a cooldown, so one bad minute doesn't end an unattended run.
+snapshot_retry_passes = 3
+snapshot_retry_cooldown_s = 300

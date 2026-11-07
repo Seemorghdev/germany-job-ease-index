@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
@@ -19,7 +20,7 @@ from jobease.config import Settings
 from jobease.http import PoliteClient
 from jobease.raw_store import RawArtifact, RawStore
 from jobease.sources import ba_issues, ba_unemployment, bkg, destatis_gvisys
-from jobease.sources.jobsuche import JobsucheClient, Listing, SearchQuery
+from jobease.sources.jobsuche import JobsucheClient, JobsucheError, Listing, SearchQuery
 
 log = logging.getLogger("jobease")
 
@@ -402,6 +403,11 @@ class SnapshotSummary:
     pages: int
     listings: int
     truncated: int
+    failed: int = 0  # queries still missing after every retry pass; rerun the same day
+
+    @property
+    def complete(self) -> bool:
+        return self.failed == 0
 
 
 @dataclass(frozen=True)
@@ -524,11 +530,13 @@ def snapshot_listings(
     snapshot_date: date | None = None,
     limit_cities: int | None = None,
     client_factory: Callable[[], JobsucheClient] | None = None,
+    sleep: Callable[[float], None] = time.sleep,
 ) -> SnapshotSummary:
     """Store every open listing per (city, search term) for one day.
 
     Resumable: rerunning on the same day skips queries already stored. The warehouse is
-    opened only for each query's write, so a long run doesn't lock it for others.
+    opened only for each query's write, so a long run doesn't lock it for others. Queries
+    that keep failing are retried in later passes; ``failed`` counts what is still missing.
     """
     cfg = settings.jobsuche
     day = snapshot_date or snapshot_date_today()
@@ -559,21 +567,45 @@ def snapshot_listings(
 
     fetched = skipped = pages = listings = truncated = 0
     total_queries = len(targets) * len(terms)
-    with (client_factory or make_client)() as client:
-        for city in targets:
-            for item in terms:
-                if (city.ags, item.tier, item.term) in done:
-                    skipped += 1
-                    continue
+    pending: list[tuple[City, seeds.TierTerm]] = []
+    for city in targets:
+        for item in terms:
+            if (city.ags, item.tier, item.term) in done:
+                skipped += 1
+            else:
+                pending.append((city, item))
+
+    # A query that fails after the client's own retries is set aside, not fatal: the BA
+    # server drops connections in bursts, and the next pass, after a cooldown and on a
+    # fresh connection, usually gets through.
+    for attempt in range(cfg.snapshot_retry_passes + 1):
+        if attempt:
+            log.warning(
+                "snapshot %s: %d queries failed; pass %d of %d in %.0f s",
+                day,
+                len(pending),
+                attempt,
+                cfg.snapshot_retry_passes,
+                cfg.snapshot_retry_cooldown_s,
+            )
+            sleep(cfg.snapshot_retry_cooldown_s)
+        failed: list[tuple[City, seeds.TierTerm]] = []
+        with (client_factory or make_client)() as client:
+            for city, item in pending:
                 query = SearchQuery(item.term, city.search_name, cfg.radius_km, None)
-                result = _fetch_all_pages(
-                    client,
-                    store,
-                    query,
-                    day=day,
-                    size=cfg.snapshot_page_size,
-                    max_pages=cfg.snapshot_max_pages,
-                )
+                try:
+                    result = _fetch_all_pages(
+                        client,
+                        store,
+                        query,
+                        day=day,
+                        size=cfg.snapshot_page_size,
+                        max_pages=cfg.snapshot_max_pages,
+                    )
+                except JobsucheError as exc:
+                    log.warning("snapshot %s: set aside: %s", day, exc)
+                    failed.append((city, item))
+                    continue
                 with connect() as con:
                     _store_query(con, day, city, item, cfg.radius_km, result)
                 fetched += 1
@@ -589,8 +621,27 @@ def snapshot_listings(
                         pages,
                         listings,
                     )
+        pending = failed
+        if not pending:
+            break
+
     summary = SnapshotSummary(
-        day.isoformat(), len(targets), len(terms), fetched, skipped, pages, listings, truncated
+        day.isoformat(),
+        len(targets),
+        len(terms),
+        fetched,
+        skipped,
+        pages,
+        listings,
+        truncated,
+        failed=len(pending),
     )
-    log.info("snapshot complete: %s", summary)
+    if pending:
+        log.error(
+            "snapshot incomplete: %s; rerun today to fetch the rest: %s",
+            summary,
+            ", ".join(f"{city.search_name}/{item.term}" for city, item in pending),
+        )
+    else:
+        log.info("snapshot complete: %s", summary)
     return summary

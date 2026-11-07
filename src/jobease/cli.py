@@ -106,12 +106,11 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     settings = load_settings(args.config)
     if args.command == "snapshot-listings":
-        print(
-            pipeline.snapshot_listings(
-                settings, snapshot_date=args.date, limit_cities=args.limit_cities
-            )
+        snapshot_summary = pipeline.snapshot_listings(
+            settings, snapshot_date=args.date, limit_cities=args.limit_cities
         )
-        return 0
+        print(snapshot_summary)
+        return 0 if snapshot_summary.complete else 1
     if args.command == "download-ba":
         if args.first_year > args.last_year or not 1 <= args.month <= 12:
             print("download-ba: need first_year <= last_year and 1 <= month <= 12")

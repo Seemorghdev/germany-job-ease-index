@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import plistlib
+from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -163,6 +164,57 @@ def test_snapshot_marks_queries_cut_off_by_the_page_limit(tmp_path: Path) -> Non
 
     assert summary.truncated == summary.terms
     assert summary.listings == 100 * summary.terms
+
+
+def _flaky_client(fail_first: int) -> Callable[[], JobsucheClient]:
+    """The first ``fail_first`` requests drop the connection, like the BA did on 7 Nov."""
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] <= fail_first:
+            raise httpx.RemoteProtocolError("Server disconnected without sending a response.")
+        return _handler(request)
+
+    def factory() -> JobsucheClient:
+        return JobsucheClient(
+            base_url="https://example.test/jobs",
+            api_key="k",
+            max_retries=0,
+            transport=httpx.MockTransport(handler),
+            sleep=lambda _: None,
+        )
+
+    return factory
+
+
+def test_snapshot_sets_failing_queries_aside_and_retries_them(tmp_path: Path) -> None:
+    settings = _settings(tmp_path, snapshot_retry_passes=2, snapshot_retry_cooldown_s=300)
+    _seed_city(settings)
+    waits: list[float] = []
+
+    summary = pipeline.snapshot_listings(
+        settings, snapshot_date=DAY, client_factory=_flaky_client(3), sleep=waits.append
+    )
+
+    assert summary.complete
+    assert (summary.fetched, summary.failed) == (summary.terms, 0)
+    assert waits == [300]  # one cooldown, then the three set-aside queries got through
+
+
+def test_snapshot_reports_what_is_still_missing(tmp_path: Path) -> None:
+    settings = _settings(tmp_path, snapshot_retry_passes=1, snapshot_retry_cooldown_s=1)
+    _seed_city(settings)
+
+    summary = pipeline.snapshot_listings(
+        settings, snapshot_date=DAY, client_factory=_flaky_client(10**6), sleep=lambda _: None
+    )
+
+    assert not summary.complete
+    assert (summary.fetched, summary.failed) == (0, summary.terms)
+    # Nothing half-written: a rerun later that day fetches every query.
+    again = pipeline.snapshot_listings(settings, snapshot_date=DAY, client_factory=_client)
+    assert (again.fetched, again.skipped, again.failed) == (again.terms, 0, 0)
 
 
 # --- unattended runs --------------------------------------------------------------------
