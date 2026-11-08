@@ -16,11 +16,17 @@ from zoneinfo import ZoneInfo
 import duckdb
 
 from jobease import seeds, warehouse
-from jobease.config import Settings
+from jobease.config import JobsucheSettings, Settings
 from jobease.http import PoliteClient
 from jobease.raw_store import RawArtifact, RawStore
 from jobease.sources import ba_issues, ba_unemployment, bkg, destatis_gvisys
-from jobease.sources.jobsuche import JobsucheClient, JobsucheError, Listing, SearchQuery
+from jobease.sources.jobsuche import (
+    JobsucheClient,
+    JobsucheDisabledError,
+    JobsucheError,
+    Listing,
+    SearchQuery,
+)
 
 log = logging.getLogger("jobease")
 
@@ -321,6 +327,22 @@ def new_batch_id() -> str:
     return datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
 
 
+def job_board_client(cfg: JobsucheSettings) -> JobsucheClient:
+    """The only place a real job-board client is made, so one switch turns them all off."""
+    if not cfg.enabled:
+        raise JobsucheDisabledError(
+            "job-board access is off ([jobsuche] enabled = false in config/inputs.toml): "
+            "the arbeitsagentur.de terms of use forbid automated collection"
+        )
+    return JobsucheClient(
+        base_url=cfg.base_url,
+        api_key=cfg.api_key,
+        min_interval_s=cfg.min_interval_s,
+        max_retries=cfg.max_retries,
+        timeout_s=cfg.timeout_s,
+    )
+
+
 def fetch_counts(
     settings: Settings,
     *,
@@ -337,13 +359,7 @@ def fetch_counts(
     store = RawStore(settings.raw_dir)
 
     def make_client() -> JobsucheClient:
-        return JobsucheClient(
-            base_url=cfg.base_url,
-            api_key=cfg.api_key,
-            min_interval_s=cfg.min_interval_s,
-            max_retries=cfg.max_retries,
-            timeout_s=cfg.timeout_s,
-        )
+        return job_board_client(cfg)
 
     fetched = skipped = 0
     total = len(targets) * len(terms)
@@ -547,13 +563,7 @@ def snapshot_listings(
     connect = partial(warehouse.connect, settings.warehouse, wait_s=cfg.snapshot_lock_wait_s)
 
     def make_client() -> JobsucheClient:
-        return JobsucheClient(
-            base_url=cfg.base_url,
-            api_key=cfg.api_key,
-            min_interval_s=cfg.min_interval_s,
-            max_retries=cfg.max_retries,
-            timeout_s=cfg.timeout_s,
-        )
+        return job_board_client(cfg)
 
     with connect() as con:
         done = {

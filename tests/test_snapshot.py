@@ -15,6 +15,7 @@ from jobease import launchd, pipeline, warehouse
 from jobease.config import Settings, load_settings
 from jobease.sources.jobsuche import (
     JobsucheClient,
+    JobsucheDisabledError,
     JobsucheSchemaError,
     SearchQuery,
     parse_listing,
@@ -246,6 +247,14 @@ def test_connect_gives_up_on_a_lock_without_wait(
     monkeypatch.setattr(duckdb, "connect", locked)
     with pytest.raises(duckdb.IOException), warehouse.connect(tmp_path / "w.duckdb"):
         pass
+
+
+def test_job_board_access_is_off_by_default() -> None:
+    # The terms of use forbid automated collection (see config/inputs.toml).
+    settings = load_settings()
+    assert settings.jobsuche.enabled is False
+    with pytest.raises(JobsucheDisabledError):
+        pipeline.job_board_client(settings.jobsuche)
 
 
 def test_launchd_plist_runs_the_snapshot_from_the_repo(tmp_path: Path) -> None:

@@ -76,6 +76,7 @@ class GvisysSettings:
 
 @dataclass(frozen=True)
 class JobsucheSettings:
+    enabled: bool
     base_url: str
     api_key: str
     radius_km: int
@@ -165,6 +166,7 @@ def load_settings(config_path: Path | None = None) -> Settings:
             columns=columns,
         ),
         jobsuche=JobsucheSettings(
+            enabled=_require(js, "enabled", "jobsuche") is True,
             base_url=str(_require(js, "base_url", "jobsuche")),
             api_key=str(_require(js, "api_key", "jobsuche")),
             radius_km=int(_require(js, "radius_km", "jobsuche")),

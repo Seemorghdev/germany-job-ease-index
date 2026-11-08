@@ -22,6 +22,7 @@ tmp*/
 # Only reviewed aggregate exports are committed.
 data/inputs/
 data/raw/
+data/official-vacancies/
 data/*.duckdb
 data/*.duckdb.wal
 data/logs/

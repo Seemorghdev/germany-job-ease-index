@@ -29,6 +29,10 @@ class JobsucheSchemaError(JobsucheError):
     """The response doesn't have the shape we rely on (see bundesAPI/jobsuche-api#69)."""
 
 
+class JobsucheDisabledError(RuntimeError):
+    """Job-board access is switched off in config/inputs.toml ([jobsuche] enabled)."""
+
+
 @dataclass(frozen=True)
 class SearchQuery:
     term: str

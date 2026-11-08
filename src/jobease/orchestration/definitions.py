@@ -16,6 +16,7 @@ from dagster_dbt import DbtCliResource, DbtProject, dbt_assets, get_asset_key_fo
 
 from jobease import export, pipeline
 from jobease.config import DBT_DIR, load_settings
+from jobease.official_vacancies import refresh_index
 
 SETTINGS = load_settings()
 os.environ.setdefault("JOBEASE_DUCKDB", str(SETTINGS.warehouse))
@@ -166,6 +167,22 @@ def city_ease_exports() -> dg.MaterializeResult[None]:
     return dg.MaterializeResult(metadata={"files": [str(p) for p in paths]})
 
 
+@dg.asset(key=_key("official_vacancy_index"), group_name="official_statistics", kinds={"python"})
+def official_vacancy_index() -> dg.MaterializeResult[None]:
+    """Fetch the BA Kreis vacancy CSVs and write the separate local official index."""
+    summary = refresh_index(SETTINGS)
+    return dg.MaterializeResult(
+        metadata={
+            "period": str(summary["period"]),
+            "geographies": summary["geographies"],
+            "vacancy_csvs": summary["vacancy_csvs"],
+            "included": summary["included"],
+            "excluded": summary["excluded"],
+            "index": str(summary["index"]),
+        }
+    )
+
+
 refresh_all = dg.define_asset_job("refresh_all", selection=dg.AssetSelection.all())
 rebuild_from_landing = dg.define_asset_job(
     "rebuild_from_landing",
@@ -183,6 +200,16 @@ daily_snapshot_schedule = dg.ScheduleDefinition(
     execution_timezone="Europe/Berlin",
     default_status=dg.DefaultScheduleStatus.STOPPED,
 )
+official_vacancy_refresh_job = dg.define_asset_job(
+    "official_vacancy_refresh",
+    selection=dg.AssetSelection.assets(official_vacancy_index),
+)
+official_vacancy_refresh_schedule = dg.ScheduleDefinition(
+    job=official_vacancy_refresh_job,
+    cron_schedule="0 10 5 * *",
+    execution_timezone="Europe/Berlin",
+    default_status=dg.DefaultScheduleStatus.STOPPED,
+)
 
 defs = dg.Definitions(
     assets=[
@@ -191,10 +218,11 @@ defs = dg.Definitions(
         bkg_vg250,
         jobsuche_counts,
         jobsuche_snapshot,
+        official_vacancy_index,
         jobease_dbt,
         city_ease_exports,
     ],
-    jobs=[refresh_all, rebuild_from_landing, daily_snapshot],
-    schedules=[daily_snapshot_schedule],
+    jobs=[refresh_all, rebuild_from_landing, daily_snapshot, official_vacancy_refresh_job],
+    schedules=[daily_snapshot_schedule, official_vacancy_refresh_schedule],
     resources={"dbt": DbtCliResource(project_dir=DBT_PROJECT, dbt_executable=DBT_EXECUTABLE)},
 )
