@@ -83,6 +83,14 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    try:
+        return _run(argv)
+    except pipeline.JobBoardDisabledError as exc:
+        print(f"refused: {exc}", file=sys.stderr)
+        return 3
+
+
+def _run(argv: Sequence[str] | None) -> int:
     args = _parser().parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 

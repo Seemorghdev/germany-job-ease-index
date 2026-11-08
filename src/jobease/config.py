@@ -76,7 +76,6 @@ class GvisysSettings:
 
 @dataclass(frozen=True)
 class JobsucheSettings:
-    enabled: bool
     base_url: str
     api_key: str
     radius_km: int
@@ -89,6 +88,9 @@ class JobsucheSettings:
     snapshot_lock_wait_s: float
     snapshot_retry_passes: int
     snapshot_retry_cooldown_s: float
+    # Off since 8 Nov 2026: the arbeitsagentur.de terms (§2a(3)) forbid automated reading
+    # of portal content for data collection. Nothing may call the job board while False.
+    enabled: bool = False
 
 
 @dataclass(frozen=True)
@@ -129,6 +131,13 @@ def _require(section: dict[str, Any], key: str, section_name: str) -> Any:
     return section[key]
 
 
+def _bool(value: Any, name: str) -> bool:
+    # bool("false") is True, so a quoted value must not slip through as "on".
+    if not isinstance(value, bool):
+        raise ConfigError(f"{name} must be true or false, got {value!r}")
+    return value
+
+
 def load_settings(config_path: Path | None = None) -> Settings:
     path = config_path or Path(os.environ.get("JOBEASE_CONFIG", DEFAULT_CONFIG))
     with path.open("rb") as handle:
@@ -166,7 +175,6 @@ def load_settings(config_path: Path | None = None) -> Settings:
             columns=columns,
         ),
         jobsuche=JobsucheSettings(
-            enabled=_require(js, "enabled", "jobsuche") is True,
             base_url=str(_require(js, "base_url", "jobsuche")),
             api_key=str(_require(js, "api_key", "jobsuche")),
             radius_km=int(_require(js, "radius_km", "jobsuche")),
@@ -179,6 +187,7 @@ def load_settings(config_path: Path | None = None) -> Settings:
             snapshot_lock_wait_s=float(_require(js, "snapshot_lock_wait_s", "jobsuche")),
             snapshot_retry_passes=int(_require(js, "snapshot_retry_passes", "jobsuche")),
             snapshot_retry_cooldown_s=float(_require(js, "snapshot_retry_cooldown_s", "jobsuche")),
+            enabled=_bool(_require(js, "enabled", "jobsuche"), "jobsuche.enabled"),
         ),
         bkg=BkgSettings(
             file=resolve(_require(bkg, "file", "bkg_vg250")),

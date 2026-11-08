@@ -11,7 +11,7 @@ import duckdb
 import httpx
 import pytest
 
-from jobease import launchd, pipeline, warehouse
+from jobease import cli, launchd, pipeline, warehouse
 from jobease.config import Settings, load_settings
 from jobease.sources.jobsuche import (
     JobsucheClient,
@@ -88,13 +88,49 @@ def test_snapshot_query_has_no_age_filter() -> None:
 
 
 def _settings(tmp_path: Path, **jobsuche: object) -> Settings:
+    # The real config keeps the job board off; these tests switch it on for a mock server.
     base = load_settings()
+    options: dict[str, object] = {"min_interval_s": 0, "enabled": True, **jobsuche}
     return replace(
         base,
         warehouse=tmp_path / "w.duckdb",
         raw_dir=tmp_path / "raw",
-        jobsuche=replace(base.jobsuche, min_interval_s=0, **jobsuche),  # type: ignore[arg-type]
+        jobsuche=replace(base.jobsuche, **options),  # type: ignore[arg-type]
     )
+
+
+def test_the_shipped_config_keeps_the_job_board_off() -> None:
+    assert load_settings().jobsuche.enabled is False
+
+
+@pytest.mark.parametrize("run", ["snapshot", "counts"])
+def test_job_board_calls_refuse_before_any_request(tmp_path: Path, run: str) -> None:
+    settings = _settings(tmp_path, enabled=False)
+    requests: list[httpx.Request] = []
+
+    def record(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200)
+
+    def factory() -> JobsucheClient:
+        return JobsucheClient(
+            base_url="https://example.test/jobs",
+            api_key="k",
+            transport=httpx.MockTransport(record),
+        )
+
+    with pytest.raises(pipeline.JobBoardDisabledError):
+        if run == "snapshot":
+            pipeline.snapshot_listings(settings, snapshot_date=DAY, client_factory=factory)
+        else:
+            pipeline.fetch_counts(settings, client_factory=factory)
+    assert requests == []
+    assert not settings.warehouse.exists()  # refused before touching the warehouse
+
+
+def test_cli_reports_the_refusal(capsys: pytest.CaptureFixture[str]) -> None:
+    assert cli.main(["snapshot-listings"]) == 3
+    assert "terms of use" in capsys.readouterr().err
 
 
 def _seed_city(settings: Settings) -> None:
