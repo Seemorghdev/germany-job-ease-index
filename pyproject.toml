@@ -54,6 +54,8 @@ src = ["src", "tests", "scripts", "notebooks"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM", "RUF", "PTH", "TID"]
+# "×" is meant: ratios are written "×2.3", in code comments and in published text alike.
+allowed-confusables = ["×"]
 
 [tool.ruff.lint.per-file-ignores]
 # marimo cells are all named `_`, and a cell shows its last expression.

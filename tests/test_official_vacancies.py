@@ -1,6 +1,11 @@
 from datetime import date
 
-from jobease.official_vacancies import VacancyCsv, compose_index, parse_vacancy_csv
+from jobease.official_vacancies import (
+    VacancyCsv,
+    compose_index,
+    load_exclusions,
+    parse_vacancy_csv,
+)
 
 
 def test_ba_csv_values_are_parsed_without_changing_published_count() -> None:
@@ -71,3 +76,67 @@ def test_rate_is_project_calculation_of_unchanged_ba_counts() -> None:
     assert indexed[0].vacancy_stock == 44_350
     assert indexed[0].unemployed == 55_984
     assert indexed[0].project_vacancies_per_1000_registered_unemployed == 44_350 / 55_984 * 1_000
+
+
+def _city(name: str, code: str, population: int = 200_000) -> dict[str, object]:
+    return {
+        "city": name,
+        "municipality_ags": f"{code}000",
+        "district_code": code,
+        "area_type": "Kreisfreie Stadt",
+        "population": population,
+    }
+
+
+def _vacancy(label: str, stock: int, before: int | None) -> tuple[VacancyCsv, str, str]:
+    return (VacancyCsv(label, date(2026, 10, 1), stock, before), "hash", "url")
+
+
+def test_ba_csv_year_before_column_is_read() -> None:
+    payload = (
+        "Gemeldete Arbeitsstellen\n"
+        "Kreis:; Köln, Stadt\n"
+        "Gebietsstand:; Oktober 2026\n\n"
+        "Ausgewählte Merkmale;Oktober 2026;September 2026;Oktober 2025;Veränderung;in %;\n"
+        "Bestand Arbeitsstellen;44.350;44.340;10.340;34.010;.x;\n"
+    ).encode()
+
+    assert parse_vacancy_csv(payload).stock_year_before == 10_340
+
+
+def test_reviewed_exclusion_leaves_the_ranking_with_its_reason() -> None:
+    indexed = compose_index(
+        [_city("Köln", "05315"), _city("Ulm", "08421")],
+        {"05315": ("Köln, Stadt", 55_984), "08421": ("Ulm", 3_212)},
+        {"05315": _vacancy("Köln, Stadt", 44_350, 10_340), "08421": _vacancy("Ulm", 1_620, 1_500)},
+        period=date(2026, 10, 1),
+        exclusions={"05315": "Bundeswehr posts for all of Germany (source: x)"},
+    )
+
+    by_city = {row.city: row for row in indexed}
+    assert by_city["Ulm"].project_combined_rank == 1
+    assert by_city["Köln"].project_combined_rank is None
+    assert not by_city["Köln"].project_is_ranked
+    assert "Bundeswehr" in by_city["Köln"].project_not_ranked_reason
+    assert by_city["Köln"].project_check == ""  # reviewed, so nothing left to check
+    assert [row.city for row in indexed] == ["Ulm", "Köln"]  # ranked cities first
+
+
+def test_unreviewed_jump_stays_ranked_but_is_flagged() -> None:
+    indexed = compose_index(
+        [_city("Remscheid", "05120")],
+        {"05120": ("Remscheid, Stadt", 4_947)},
+        {"05120": _vacancy("Remscheid, Stadt", 970, 420)},
+        period=date(2026, 10, 1),
+    )
+
+    row = indexed[0]
+    assert row.project_is_ranked and row.project_combined_rank == 1
+    assert row.project_year_on_year == 970 / 420
+    assert row.project_check.startswith("stock ×2.3 in a year")
+
+
+def test_exclusions_file_lists_a_source_for_every_row() -> None:
+    exclusions = load_exclusions()
+    assert "05315" in exclusions
+    assert all("(source: http" in reason for reason in exclusions.values())

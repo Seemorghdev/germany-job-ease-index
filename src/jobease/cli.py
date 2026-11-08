@@ -9,7 +9,15 @@ from collections.abc import Sequence
 from datetime import date
 from pathlib import Path
 
-from jobease import export, launchd, map_export, pipeline, tour_video, warehouse
+from jobease import (
+    export,
+    launchd,
+    map_export,
+    official_vacancies,
+    pipeline,
+    tour_video,
+    warehouse,
+)
 from jobease.config import REPO_ROOT, load_settings
 from jobease.sources import bkg, xlsx
 
@@ -64,6 +72,13 @@ def _parser() -> argparse.ArgumentParser:
     tour = commands.add_parser("record-tour", help="record docs/tour/index.html as an MP4")
     tour.add_argument("--out", type=Path, default=tour_video.DEFAULT_OUT)
     tour.add_argument("--fps", type=int, help="frames per second (default: the page's own)")
+
+    vacancies = commands.add_parser(
+        "vacancy-index", help="local city index from the BA's official vacancy statistics"
+    )
+    vacancies.add_argument(
+        "--offline", action="store_true", help="rebuild from stored tables, with no requests"
+    )
     return parser
 
 
@@ -105,6 +120,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     settings = load_settings(args.config)
+    if args.command == "vacancy-index":
+        index = official_vacancies.refresh_index(settings, offline=args.offline)
+        print(f"{index.index}: {index.included} cities, period {index.period:%Y-%m}")
+        for city in index.not_ranked:
+            print(f"not ranked: {city}")
+        for item in index.to_check:
+            print(f"to check: {item}")
+        return 0 if index.reviewed else 1
     if args.command == "snapshot-listings":
         snapshot_summary = pipeline.snapshot_listings(
             settings, snapshot_date=args.date, limit_cities=args.limit_cities

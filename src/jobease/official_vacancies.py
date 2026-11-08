@@ -8,10 +8,12 @@ German thousands separators; all ratios and ranks are project calculations.
 from __future__ import annotations
 
 import csv
+import hashlib
 import io
 import re
 from collections import defaultdict
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, replace
 from datetime import date
 from pathlib import Path
 from typing import cast
@@ -53,6 +55,15 @@ class VacancyCsv:
     area_label: str
     period: date
     stock: int
+    stock_year_before: int | None = None
+
+
+# A district whose vacancy stock more than doubled in a year is checked by hand before its
+# rank is shown. On 8 Nov 2026 this caught Köln (×4.3): its stock includes Bundeswehr posts
+# advertised for all of Germany. A jump isn't wrong by itself, so it's flagged, not dropped;
+# only reviewed cases in config/vacancy_exclusions.csv leave the ranking.
+JUMP_RATIO = 2.0
+EXCLUSIONS_FILE = REPO_ROOT / "config" / "vacancy_exclusions.csv"
 
 
 @dataclass(frozen=True)
@@ -65,9 +76,14 @@ class CityIndexRow:
     population: int
     unemployed: int
     vacancy_stock: int
+    vacancy_stock_year_before: int | None
     project_vacancies_per_1000_registered_unemployed: float
     project_vacancy_population_share: float
-    project_combined_rank: int
+    project_year_on_year: float | None
+    project_is_ranked: bool
+    project_not_ranked_reason: str
+    project_check: str
+    project_combined_rank: int | None
     raw_sha256: str
     vacancy_url: str
 
@@ -81,6 +97,12 @@ class IndexSummary:
     included: int
     excluded: int
     index: Path
+    not_ranked: tuple[str, ...] = ()
+    to_check: tuple[str, ...] = ()  # jumps nobody has reviewed yet
+
+    @property
+    def reviewed(self) -> bool:
+        return not self.to_check
 
 
 def parse_vacancy_csv(data: bytes) -> VacancyCsv:
@@ -113,6 +135,13 @@ def parse_vacancy_csv(data: bytes) -> VacancyCsv:
         and metadata["Gebietsstand"].casefold() != header[1].strip().casefold()
     ):
         raise VacancySourceError("BA Gebietsstand and current table column disagree")
+    # The same month a year earlier, when the table has it ("Oktober 2025").
+    month_name = match.group(1)
+    year_before = f"{month_name} {period.year - 1}".casefold()
+    before_index = next(
+        (i for i, cell in enumerate(header) if i > 1 and cell.strip().casefold() == year_before),
+        None,
+    )
     for row in rows[header_index + 1 :]:
         if row and row[0].strip() == "Bestand Arbeitsstellen":
             if len(row) < 2:
@@ -120,8 +149,28 @@ def parse_vacancy_csv(data: bytes) -> VacancyCsv:
             count = parse_count(row[1])
             if count is None:
                 raise VacancySourceError("BA vacancy stock is suppressed or empty")
-            return VacancyCsv(label, period, count)
+            before = (
+                parse_count(row[before_index])
+                if before_index is not None and before_index < len(row)
+                else None
+            )
+            return VacancyCsv(label, period, count, before)
     raise VacancySourceError("BA CSV has no Bestand Arbeitsstellen row")
+
+
+def load_exclusions(path: Path = EXCLUSIONS_FILE) -> dict[str, str]:
+    """Reviewed reasons, with a source, to leave a district out of the ranking."""
+    if not path.exists():
+        return {}
+    with path.open(encoding="utf-8", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    out: dict[str, str] = {}
+    for row in rows:
+        code, reason, source = row.get("district_code"), row.get("reason"), row.get("source")
+        if not (code and reason and source):
+            raise VacancySourceError(f"{path.name}: every row needs district_code, reason, source")
+        out[code.strip()] = f"{reason.strip()} (source: {source.strip()})"
+    return out
 
 
 def build_city_geography(
@@ -190,8 +239,13 @@ def compose_index(
     vacancy_rows: dict[str, tuple[VacancyCsv, str, str]],
     *,
     period: date,
+    exclusions: Mapping[str, str] | None = None,
 ) -> list[CityIndexRow]:
-    """Join by district AGS, requiring exact same-month data on both source sides."""
+    """Join by district AGS, requiring exact same-month data on both source sides.
+
+    Ranked cities come first, ranked by vacancies per 1,000 unemployed; reviewed exclusions
+    follow with no rank and their reason."""
+    excluded = exclusions or {}
     joined: list[CityIndexRow] = []
     for city in cities:
         code = str(city["district_code"])
@@ -205,6 +259,10 @@ def compose_index(
             continue
         stock = vacancy.stock
         population = cast(int, city["population"])
+        before = vacancy.stock_year_before
+        year_on_year = stock / before if before else None
+        reason = excluded.get(code, "")
+        jumped = year_on_year is not None and year_on_year > JUMP_RATIO
         joined.append(
             CityIndexRow(
                 city=str(city["city"]),
@@ -215,9 +273,18 @@ def compose_index(
                 population=population,
                 unemployed=unemployed,
                 vacancy_stock=stock,
+                vacancy_stock_year_before=before,
                 project_vacancies_per_1000_registered_unemployed=stock / unemployed * 1000,
                 project_vacancy_population_share=stock / population,
-                project_combined_rank=0,
+                project_year_on_year=year_on_year,
+                project_is_ranked=not reason,
+                project_not_ranked_reason=reason,
+                project_check=(
+                    f"stock ×{year_on_year:.1f} in a year: review before publishing"
+                    if jumped and not reason
+                    else ""
+                ),
+                project_combined_rank=None,
                 raw_sha256=digest,
                 vacancy_url=url,
             )
@@ -225,12 +292,13 @@ def compose_index(
     ordered = sorted(
         joined,
         key=lambda row: (
+            not row.project_is_ranked,
             -row.project_vacancies_per_1000_registered_unemployed,
             row.city.casefold(),
         ),
     )
     return [
-        CityIndexRow(**{**row.__dict__, "project_combined_rank": index})
+        replace(row, project_combined_rank=index if row.project_is_ranked else None)
         for index, row in enumerate(ordered, 1)
     ]
 
@@ -259,12 +327,27 @@ def write_index(rows: list[CityIndexRow], path: Path) -> None:
         writer.writerows(row.__dict__ for row in rows)
 
 
-def refresh_index(settings: Settings) -> IndexSummary:
+def _stored_tables(manifest: Path) -> dict[str, bytes]:
+    """The tables a previous fetch stored, by district code, checked against their hashes."""
+    if not manifest.exists():
+        raise VacancySourceError(f"{manifest} is missing: run once without --offline first")
+    tables: dict[str, bytes] = {}
+    with manifest.open(encoding="utf-8", newline="") as handle:
+        for row in csv.DictReader(handle):
+            data = (REPO_ROOT / row["raw_path"]).read_bytes()
+            if hashlib.sha256(data).hexdigest() != row["raw_sha256"]:
+                raise VacancySourceError(f"{row['raw_path']} doesn't match its recorded hash")
+            tables[row["district_code"]] = data
+    return tables
+
+
+def refresh_index(settings: Settings, *, offline: bool = False) -> IndexSummary:
     """Fetch official BA Kreis CSVs, then write a local, standalone monthly index.
 
     ``settings`` is the regular ``jobease.config.Settings`` object. This function reads
     source input files and writes only under ``data/raw`` and ``data/official-vacancies``;
-    it never opens the listing warehouse or calls the Jobbörse client.
+    it never opens the listing warehouse or calls the Jobbörse client. With ``offline``, it
+    rebuilds from the tables the last fetch for the same month stored, with no requests.
     """
     geographies = build_city_geography(
         settings.gvisys.file,
@@ -292,6 +375,9 @@ def refresh_index(settings: Settings) -> IndexSummary:
         if row.period == period and row.unemployed is not None
     }
     store = RawStore(settings.raw_dir)
+    output = REPO_ROOT / "data" / "official-vacancies"
+    suffix = period.strftime("%Y-%m")
+    stored = _stored_tables(output / f"ba_vacancy_manifest-{suffix}.csv") if offline else {}
     vacancy_by_code: dict[str, tuple[VacancyCsv, str, str]] = {}
     audit_rows: list[dict[str, object]] = []
     with PoliteClient(
@@ -316,9 +402,14 @@ def refresh_index(settings: Settings) -> IndexSummary:
                 continue
             unemp_label, _ = unemp[code]
             url = vacancy_url(unemp_label)
-            response = client.get(url)
-            vacancy = parse_vacancy_csv(response.content)
-            artifact = store.put_bytes("ba_vacancies", response.content, suffix=".csv", origin=url)
+            if offline:
+                if code not in stored:
+                    raise VacancySourceError(f"no stored table for {code} {unemp_label}")
+                content = stored[code]
+            else:
+                content = client.get(url).content
+            vacancy = parse_vacancy_csv(content)
+            artifact = store.put_bytes("ba_vacancies", content, suffix=".csv", origin=url)
             vacancy_by_code[code] = (vacancy, artifact.sha256, url)
             same_code = (
                 True  # URL uses the BA unemployment label; both source files are Kreis tables.
@@ -354,10 +445,10 @@ def refresh_index(settings: Settings) -> IndexSummary:
                 )
             )
 
-    rows = compose_index(geographies, unemp, vacancy_by_code, period=period)
-    output = REPO_ROOT / "data" / "official-vacancies"
+    rows = compose_index(
+        geographies, unemp, vacancy_by_code, period=period, exclusions=load_exclusions()
+    )
     output.mkdir(parents=True, exist_ok=True)
-    suffix = period.strftime("%Y-%m")
     write_index(rows, output / f"city_vacancy_ease-{suffix}.csv")
     with (output / f"geography_audit-{suffix}.csv").open(
         "w", encoding="utf-8", newline=""
@@ -403,6 +494,8 @@ def refresh_index(settings: Settings) -> IndexSummary:
         included=len(rows),
         excluded=len(geographies) - len(rows),
         index=output / f"city_vacancy_ease-{suffix}.csv",
+        not_ranked=tuple(row.city for row in rows if not row.project_is_ranked),
+        to_check=tuple(f"{row.city}: {row.project_check}" for row in rows if row.project_check),
     )
 
 
