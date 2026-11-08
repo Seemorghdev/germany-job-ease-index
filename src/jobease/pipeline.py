@@ -321,6 +321,20 @@ def new_batch_id() -> str:
     return datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
 
 
+class JobBoardDisabledError(RuntimeError):
+    """A job-board call was attempted while ``[jobsuche] enabled = false``."""
+
+
+def require_job_board(settings: Settings) -> None:
+    """Refuse before any request, client or warehouse write. Checked even when a test
+    passes its own client, so no path round the switch exists."""
+    if not settings.jobsuche.enabled:
+        raise JobBoardDisabledError(
+            "job-board access is off ([jobsuche] enabled = false in config/inputs.toml): "
+            "the arbeitsagentur.de terms of use forbid automated data collection"
+        )
+
+
 def fetch_counts(
     settings: Settings,
     *,
@@ -329,6 +343,7 @@ def fetch_counts(
     client_factory: Callable[[], JobsucheClient] | None = None,
 ) -> FetchSummary:
     """Fetch one count per (city, search term). Resumable: pass the same ``batch_id``."""
+    require_job_board(settings)
     cfg = settings.jobsuche
     batch = batch_id or new_batch_id()
     all_cities = cities(settings)
@@ -538,6 +553,7 @@ def snapshot_listings(
     opened only for each query's write, so a long run doesn't lock it for others. Queries
     that keep failing are retried in later passes; ``failed`` counts what is still missing.
     """
+    require_job_board(settings)
     cfg = settings.jobsuche
     day = snapshot_date or snapshot_date_today()
     all_cities = cities(settings)

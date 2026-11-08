@@ -57,6 +57,12 @@ simplify_m = 500          # line simplification; 1 px on the 690 px-wide map is 
 min_population = 100000
 
 [jobsuche]
+# OFF. The arbeitsagentur.de terms of use (§2a(3), version of 8 July 2026) forbid robots
+# and reading out portal content "zum Zweck der Datensammlung und -auswertung". Every
+# command that would call the job board refuses while this is false. Don't switch it on
+# without written permission from the BA. The code stays so the existing results can be
+# traced; no new requests are made.
+enabled = false
 base_url = "https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v6/jobs"
 api_key = "jobboerse-jobsuche"
 radius_km = 0

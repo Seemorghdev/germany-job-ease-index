@@ -88,6 +88,9 @@ class JobsucheSettings:
     snapshot_lock_wait_s: float
     snapshot_retry_passes: int
     snapshot_retry_cooldown_s: float
+    # Off since 8 Nov 2026: the arbeitsagentur.de terms (§2a(3)) forbid automated reading
+    # of portal content for data collection. Nothing may call the job board while False.
+    enabled: bool = False
 
 
 @dataclass(frozen=True)
@@ -126,6 +129,13 @@ def _require(section: dict[str, Any], key: str, section_name: str) -> Any:
     if key not in section:
         raise ConfigError(f"missing '{key}' in [{section_name}]")
     return section[key]
+
+
+def _bool(value: Any, name: str) -> bool:
+    # bool("false") is True, so a quoted value must not slip through as "on".
+    if not isinstance(value, bool):
+        raise ConfigError(f"{name} must be true or false, got {value!r}")
+    return value
 
 
 def load_settings(config_path: Path | None = None) -> Settings:
@@ -177,6 +187,7 @@ def load_settings(config_path: Path | None = None) -> Settings:
             snapshot_lock_wait_s=float(_require(js, "snapshot_lock_wait_s", "jobsuche")),
             snapshot_retry_passes=int(_require(js, "snapshot_retry_passes", "jobsuche")),
             snapshot_retry_cooldown_s=float(_require(js, "snapshot_retry_cooldown_s", "jobsuche")),
+            enabled=_bool(_require(js, "enabled", "jobsuche"), "jobsuche.enabled"),
         ),
         bkg=BkgSettings(
             file=resolve(_require(bkg, "file", "bkg_vg250")),
