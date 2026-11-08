@@ -67,7 +67,13 @@ def _write(path: Path, rows: list[dict[str, str]]) -> Path:
 ROWS = [
     _row("Ulm", "08421000", "1", 504.35865),
     _row("Berlin", "11000000", "2", 95.1),
-    _row("Remscheid", "05120000", "3", 196.1, project_check="stock ×2.3 in a year: review before publishing"),
+    _row(
+        "Remscheid",
+        "05120000",
+        "3",
+        196.1,
+        project_check="stock ×2.3 in a year: review before publishing",
+    ),
     _row("Köln", "05315000", "", 900.0, project_not_ranked_reason="Bundeswehr posts"),
 ]
 

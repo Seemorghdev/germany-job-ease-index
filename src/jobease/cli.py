@@ -53,9 +53,7 @@ def _parser() -> argparse.ArgumentParser:
     fetch.add_argument("--batch-id", help="resume an interrupted batch")
     fetch.add_argument("--limit-cities", type=int, help="only the first N cities (smoke test)")
 
-    commands.add_parser(
-        "export", help="write data/exports/city_vacancy_ease.csv and summary.json"
-    )
+    commands.add_parser("export", help="write data/exports/city_vacancy_ease.csv and summary.json")
     commands.add_parser("export-map", help="write docs/map/data.js for the district map")
     commands.add_parser("status", help="row counts of the landing tables")
 
