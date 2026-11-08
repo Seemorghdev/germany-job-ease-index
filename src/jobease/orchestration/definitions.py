@@ -12,9 +12,9 @@ from pathlib import Path
 from typing import Any
 
 import dagster as dg
-from dagster_dbt import DbtCliResource, DbtProject, dbt_assets, get_asset_key_for_model
+from dagster_dbt import DbtCliResource, DbtProject, dbt_assets
 
-from jobease import export, pipeline
+from jobease import pipeline, vacancy_export
 from jobease.config import DBT_DIR, load_settings
 from jobease.official_vacancies import refresh_index
 
@@ -153,17 +153,13 @@ def jobease_dbt(context: dg.AssetExecutionContext, dbt: DbtCliResource) -> Itera
     yield from dbt.cli(["build"], context=context).stream()
 
 
-@dg.asset(
-    group_name="exports",
-    kinds={"python"},
-    deps=[
-        get_asset_key_for_model([jobease_dbt], "mart_city_ease"),
-        get_asset_key_for_model([jobease_dbt], "mart_city_tier_ease"),
-    ],
-)
+@dg.asset(group_name="exports", kinds={"python"}, deps=[_key("official_vacancy_index")])
 def city_ease_exports() -> dg.MaterializeResult[None]:
-    """Publishable aggregates: data/exports/city_ease.csv and summary.json."""
-    paths = export.export(SETTINGS)
+    """Publishable aggregates from the official vacancy index: data/exports/*.
+
+    The job-board marts are never exported: the Jobbörse terms forbid automated collection.
+    """
+    paths = vacancy_export.export_vacancies()
     return dg.MaterializeResult(metadata={"files": [str(p) for p in paths]})
 
 

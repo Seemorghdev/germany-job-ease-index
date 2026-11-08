@@ -1,56 +1,59 @@
 # germany-job-ease-index
 
-**Where in Germany is it easiest to land a job, by type of work?** This project answers from the job seeker's side, using public data only: job-board listings per 1,000 unemployed people, for the 79 German cities with 100,000+ residents.
+**Where in Germany is it easiest to land a job?** This project answers from the job seeker's side, using official statistics only: vacancies registered with the Federal Employment Agency (BA) per 1,000 unemployed people, for the German cities with 100,000+ residents.
 
-![Map of Germany: districts shaded by unemployment, cities coloured by entry-level listings per job seeker](docs/map/germany-job-ease-map.png)
+![Map of Germany: districts shaded by unemployment, cities coloured by registered vacancies per unemployed person](docs/map/germany-job-ease-map.png)
 
-## Results (first snapshot, November 2026)
+## Results (October 2026)
 
-| Rank | City |
-|---|---|
-| 1 | Erlangen |
-| 2 | Ulm |
-| 3 | Würzburg |
-| 4 | Münster |
-| 5 | Jena |
+| Rank | City | Registered vacancies | Unemployed | Vacancies per 1,000 unemployed |
+|---|---|---|---|---|
+| 1 | Ulm | 1,620 | 3,212 | 504 |
+| 2 | Würzburg | 1,840 | 3,841 | 479 |
+| 3 | Erlangen | 1,330 | 3,304 | 403 |
+| 4 | Jena | 1,220 | 3,443 | 354 |
+| 5 | Regensburg | 1,790 | 5,190 | 345 |
+| 64 of 68 | Berlin | 21,240 | 223,254 | 95 |
 
-Erlangen has **3.4×** as many entry-level listings per job seeker as Berlin (48 vs 14 per 1,000 unemployed). These numbers come from one day of job-board data. Daily snapshots are running, so lifetimes and trends will follow.
+Ulm has **5.3×** as many registered vacancies per unemployed person as Berlin.
 
-The full table is in [`data/exports/city_ease.csv`](data/exports/city_ease.csv), and the run's metadata is in [`summary.json`](data/exports/summary.json).
+The full table is in [`data/exports/city_vacancy_ease.csv`](data/exports/city_vacancy_ease.csv), and the run's metadata, the unranked cities and the notes are in [`summary.json`](data/exports/summary.json).
 
 ## Method
 
-- **Listings:** for each city, the number of open listings on the [BA Jobbörse](https://www.arbeitsagentur.de/jobsuche/) posted in the last 30 days, with no radius. They are counted for a fixed set of search terms per kind of work ([`dbt/seeds/tier_terms.csv`](dbt/seeds/tier_terms.csv)):
-  - **Tech:** DevOps, Cloud, IT-Support, …
-  - **Office & support:** Kundenservice, Sachbearbeiter, …
-  - **Entry-level:** Lagerhelfer, Verkäufer, Küchenhilfe, …
-- **Job seekers:** the number of registered unemployed in the city's district (Kreis), from the Bundesagentur für Arbeit's monthly district statistics (October 2026).
-- **Rate:** listings ÷ unemployed × 1,000, worked out for each kind of work.
-- **Ranking:** cities are ranked for each kind of work, and the three ranks are averaged with **entry-level counting double** ([`dbt/seeds/tiers.csv`](dbt/seeds/tiers.csv)).
-- **Not ranked:** 10 cities that make up less than half of their district's population, such as Hannover in the Region Hannover. The district's unemployment count mostly describes other places, so it would give them a misleading rate. They're listed with the reason in `summary.json`, so 69 cities are ranked.
+- **Vacancies:** the stock of vacancies registered with the BA (*Gemeldete Arbeitsstellen*) in the city's district (Kreis), for October 2026.
+- **Job seekers:** registered unemployed (*Arbeitslose*) in the same district and month.
+- **Source:** both come from the BA's statistics interface (*Aktuelle Eckwerte*, table `EckwerteTabelleSTEA`), which the BA offers for automated retrieval. Every table is stored under its SHA-256 hash with its URL ([`src/jobease/official_vacancies.py`](src/jobease/official_vacancies.py)).
+- **Rate:** vacancies ÷ unemployed × 1,000. Cities are ranked by this rate.
+- **Not ranked:**
+  - 10 cities that make up less than half of their district's population, such as Hannover in the Region Hannover. The district's figures mostly describe other places.
+  - Köln: its October 2026 count (44,350, against 10,340 a year earlier) includes many Bundeswehr posts advertised for all of Germany, per the [BA Köln press release](https://www.arbeitsagentur.de/vor-ort/koeln/presse/2026-22-herbstbelebung-bleibt-schwunglos). Reviewed exclusions live in [`config/vacancy_exclusions.csv`](config/vacancy_exclusions.csv), each with a reason and a source.
+- **Jump check:** a district whose vacancy count more than doubled in a year is flagged, and `jobease vacancy-index` exits with an error until the jump has been explained or the district excluded. Remscheid (420 → 970) is flagged: it stays ranked, and the table, map and summary show a note that no explanation has been found yet. Erfurt (1,140 → 2,220) is just under the threshold.
 - **History:** unemployment for all ~400 districts, monthly, from January 2007 to October 2026. Every gap is explained by a district reform (for example Hanau became a district-free city in 2026, and Eisenach merged into Wartburgkreis in 2021), recorded in [`dbt/seeds/district_changes.csv`](dbt/seeds/district_changes.csv) with sources.
 
-Every bug found during development has a dbt test that keeps it fixed, for example AGS join integrity, a plausible unemployed-to-population ratio and districts matching the boundary file.
+Every bug found during development has a test that keeps it fixed, for example AGS join integrity, a plausible unemployed-to-population ratio and districts matching the boundary file.
 
 ### Limitations
 
-- A listing count measures openings, not hires. One employer can post many listings, and agencies repost.
-- Search terms are a sample of each kind of work, not a full occupational classification.
-- Unemployment is counted where people live, but listings are counted where the job is, so commuter cities (Erlangen is one) look better than their surroundings.
-- Pay and access without a car are not in the index yet (planned).
+- **Registered vacancies are part of the job market, not all of it.** Not every employer reports every opening to the BA, and the share differs by sector. A city where employers report more often looks better.
+- **One measure for all work.** This is the total across skill levels. It doesn't say whether a city has entry-level jobs in particular.
+- **Where people live vs where they work.** Unemployment is counted where people live, but vacancies where the job is. Cities many people commute into can look better than the area around them.
+- **Openings, not hires.** The rate says nothing about applicants per opening, pay, or how easy the jobs are to reach without a car.
 
-## Privacy
+### Earlier versions
 
-Only aggregates are published. Listing-level data (titles, employers, reference numbers) stays in a local DuckDB warehouse and is never committed: see `.gitignore`. The published notebooks and map can only read marts on an allow-list (`src/jobease/showcase.py`), and a test enforces this.
+The first version (6–7 Nov 2026) counted listings on the BA Jobbörse, the job board. The arbeitsagentur.de terms of use forbid automated reading of portal content for data collection, so that method was stopped on 8 Nov 2026 and its figures are no longer published. The code stays in the repo to document the method, with job-board access switched off in [`config/inputs.toml`](config/inputs.toml); every command that would call the job board refuses to run.
+
+The two versions measure different things, but agree on the top three: Ulm, Würzburg and Erlangen.
 
 ## Stack
 
 Python · DuckDB · dbt (dbt-duckdb) · Dagster · marimo · Observable Plot and D3. Everything runs locally; there's no cloud.
 
 ```
-sources (BA, Destatis, BKG)  →  Python parsers  →  DuckDB landing tables
+sources (BA statistics, Destatis, BKG)  →  Python parsers  →  DuckDB landing tables
   →  dbt staging → intermediate → marts (with data tests)
-  →  exports · notebooks · map · tour video
+  →  official vacancy index  →  exports · notebook · map · tour video
 ```
 
 Dagster drives the same steps as an asset graph (`make dev`).
@@ -64,13 +67,13 @@ make setup        # virtualenv, dependencies, headless Chromium for the video
 make check        # lint, types, unit tests, dbt parse (offline, what CI runs)
 .venv/bin/python -m jobease download-ba 2008 2025   # BA district issues, one per year (slow: the BA throttles)
 make ingest       # load the BA issues, the Destatis municipality list and the BKG boundaries
-make fetch        # job-board counts, ~20-30 min, resumable: jobease fetch-counts --batch-id <id>
 make build        # dbt seeds, models and data tests
-make export       # data/exports/city_ease.csv and summary.json
-make notebooks    # analysis notebooks → docs/notebooks/*.html
+.venv/bin/python -m jobease vacancy-index           # fetch the BA vacancy tables (one per district)
+make vacancies    # rebuild the vacancy index offline from the stored tables
+make export       # data/exports/city_vacancy_ease.csv and summary.json
+make notebooks    # the unemployment-history notebook → docs/notebooks/
 make map          # docs/map/data.js; open docs/map/index.html
 make tour         # the city-to-city tour → docs/tour/germany-job-ease-tour.mp4
-make snapshot     # today's open listings (daily via launchd: jobease launchd-plist)
 make dev          # Dagster UI with the asset graph
 ```
 
@@ -79,30 +82,30 @@ The Destatis municipality list and the BKG boundary ZIP go in `data/inputs/` (pa
 ## Layout
 
 ```
-config/inputs.toml         every input path, column and parameter, in one place
+config/
+  inputs.toml              every input path, column and parameter, in one place
+  vacancy_exclusions.csv   reviewed districts left out of the ranking, with sources
 src/jobease/
-  sources/                 one parser per source: BA unemployment, Destatis, BA Jobsuche, BKG
+  sources/                 one parser per source: BA unemployment, Destatis, BKG (and the
+                           switched-off job-board client)
+  official_vacancies.py    the BA vacancy tables → the local city index
+  vacancy_export.py        publishable files from that index
+  map_export.py            the map's data, aggregates only
   raw_store.py             content-addressed copies of every input file and API response
   warehouse.py             DuckDB landing tables (written by Python, read by dbt)
-  pipeline.py              ingest and fetch steps; the CLI and Dagster both call these
-  export.py, map_export.py publishable aggregates only
-  showcase.py              what the notebooks may read: publishable marts only
+  pipeline.py              ingest steps; the CLI and Dagster both call these
   tour_video.py            records docs/tour/index.html frame by frame to MP4
   orchestration/           Dagster asset graph
-dbt/
-  seeds/                   kinds of work, search terms, district reforms, control figures
-  models/                  staging → intermediate → marts
-  tests/                   data tests, including one per bug found during development
-notebooks/level2_analysis/ city ranking, unemployment history, job board today
-docs/                      map, tour and exported notebooks
+dbt/                       staging → intermediate → marts, seeds and data tests
+notebooks/level2_analysis/ analysis notebooks (only the unemployment history is exported)
+docs/                      map, tour and exported notebook
 tests/                     Python unit tests (offline, synthetic inputs)
 ```
 
 ## Data and licences
 
-- Statistik der Bundesagentur für Arbeit: unemployed per district.
-- BA Jobbörse: job listings, counted by this project.
-- Destatis Gemeindeverzeichnis (GV-ISys): residents per municipality.
-- © GeoBasis-DE / BKG (2026), [dl-de/by-2-0](https://www.govdata.de/dl-de/by-2-0): VG250 boundaries.
+- **Statistik der Bundesagentur für Arbeit** ([statistik.arbeitsagentur.de](https://statistik.arbeitsagentur.de)): registered vacancies and unemployed per district. The rates, ranking and year-on-year ratios here are **own calculations**, not BA figures.
+- **Destatis Gemeindeverzeichnis (GV-ISys):** residents per municipality.
+- **© GeoBasis-DE / BKG (2026), [dl-de/by-2-0](https://www.govdata.de/dl-de/by-2-0):** VG250 boundaries.
 
 Code: [Apache-2.0](LICENSE).

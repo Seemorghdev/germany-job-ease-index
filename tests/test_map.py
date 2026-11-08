@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import zipfile
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +11,7 @@ import pytest
 
 from jobease.map_export import build_map_data
 from jobease.sources import bkg
+from jobease.vacancy_export import PublishedCity
 
 # A unit square near Münster, counter-clockwise (the GeoJSON convention).
 CCW = [[7.6, 51.9], [7.7, 51.9], [7.7, 52.0], [7.6, 52.0], [7.6, 51.9]]
@@ -100,19 +102,38 @@ def _warehouse() -> duckdb.DuckDBPyConnection:
     )
     con.execute(
         """
-        create table marts.mart_city_map as select
-            '05515000' as ags, 'Münster' as city, 320000 as population, true as is_ranked,
-            4 as combined_rank, 7.62571 as lon, 51.96236 as lat,
-            12.04 as rate_a, 20.5 as rate_b, 60.25 as rate_c
+        create table marts.mart_city_map as select * from (values
+            ('05515000', 'Münster', 320000, 7.62571, 51.96236),
+            ('03241001', 'Hannover', 548000, 9.73856, 52.37474)
+        ) as t(ags, city, population, lon, lat)
         """
     )
     return con
 
 
+MUENSTER = PublishedCity(
+    rank=4,
+    city="Münster",
+    ags="05515000",
+    district_code="05515",
+    district_name="Münster, Stadt",
+    population=320000,
+    unemployed=8957,
+    vacancies=2900,
+    vacancies_year_before=3100,
+    vacancies_per_1000_unemployed=323.8,
+    is_ranked=True,
+    not_ranked_reason="",
+    note="",
+    source_url="https://statistik-dr.arbeitsagentur.de/x",
+)
+
+
 def test_map_data_is_rewound_rounded_and_aggregate_only() -> None:
-    data: dict[str, Any] = build_map_data(_warehouse())
+    data: dict[str, Any] = build_map_data(_warehouse(), [MUENSTER], "2026-10")
 
     assert data["unemployment_period"] == "2026-10"
+    assert data["vacancy_period"] == "2026-10"
     [district] = data["districts"]["features"]
     assert district["properties"] == {
         "code": "05515",
@@ -125,20 +146,29 @@ def test_map_data_is_rewound_rounded_and_aggregate_only() -> None:
         "change_pct": 12.3,
     }
     assert _area(district["geometry"]["coordinates"][0]) < 0  # rewound for d3
-    [city] = data["cities"]
-    assert city["rates"] == {"A": 12.0, "B": 20.5, "C": 60.2}
-    assert (city["lon"], city["lat"]) == (7.6257, 51.9624)
-    assert set(data["tiers"]) == {"A", "B", "C"}
-    assert any("BKG" in s for s in data["sources"])
+    hannover, muenster = data["cities"]
+    assert (muenster["rank"], muenster["rate"], muenster["vacancies"]) == (4, 323.8, 2900)
+    assert (muenster["lon"], muenster["lat"]) == (7.6257, 51.9624)
+    # A city outside the official index is drawn, unranked, with the reason.
+    assert not hannover["is_ranked"] and hannover["rate"] is None
+    assert "less than half" in hannover["not_ranked_reason"]
+    assert any("Bundesagentur" in s for s in data["sources"])
+    assert any("own calculations" in s for s in data["sources"])
 
 
-def test_map_data_has_no_listing_fields() -> None:
-    text = json.dumps(build_map_data(_warehouse()), default=str)
-    for private in ("reference", "employer", "title", "referenznummer"):
+def test_map_data_has_no_job_board_fields() -> None:
+    text = json.dumps(build_map_data(_warehouse(), [MUENSTER], "2026-10"), default=str)
+    for private in ("reference", "employer", "referenznummer", "Jobbörse", "rates"):
         assert private not in text
+
+
+def test_index_city_without_a_map_position_is_an_error() -> None:
+    stray = replace(MUENSTER, ags="09999000", city="Nowhere")
+    with pytest.raises(ValueError, match="no map position"):
+        build_map_data(_warehouse(), [stray], "2026-10")
 
 
 def test_period_is_none_without_districts() -> None:
     con = _warehouse()
     con.execute("delete from marts.mart_district_map")
-    assert build_map_data(con)["unemployment_period"] is None
+    assert build_map_data(con, [MUENSTER], "2026-10")["unemployment_period"] is None

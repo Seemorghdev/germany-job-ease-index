@@ -120,8 +120,8 @@ function build(data) {
   const ranked = cities.filter((c) => c.is_ranked && c.rank != null).sort((a, b) => a.rank - b.rank);
   const top = ranked.slice(0, 5);
   const berlin = cities.find((c) => c.ags === BERLIN);
-  if (!top.length || !berlin || !berlin.rates.C) {
-    throw new Error("data.js has no ranked cities or no Berlin entry-level rate.");
+  if (!top.length || !berlin || !berlin.rate) {
+    throw new Error("data.js has no ranked cities or no Berlin rate.");
   }
 
   const projection = d3.geoTransverseMercator().rotate([-10.45, -51.16])
@@ -133,9 +133,9 @@ function build(data) {
   const perThousand = data.districts.features.map((f) => f.properties.per_1000).filter((v) => v != null);
   const districtColor = d3.scaleQuantile().domain(perThousand)
     .range(d3.quantize(d3.interpolateRgb("#f2f0f6", "#6f6290"), 6));
-  const entryRates = ranked.map((c) => c.rates.C).filter((v) => v != null);
+  const rates = ranked.map((c) => c.rate).filter((v) => v != null);
   const cityColor = d3.scaleSequential((t) => d3.interpolateGreens(0.35 + 0.65 * t))
-    .domain(d3.extent(entryRates));
+    .domain(d3.extent(rates));
   const radius = d3.scaleSqrt().domain(d3.extent(cities, (c) => c.population)).range([2.5, 13]);
 
   // Berlin first as the baseline, then the top five counting down to #1.
@@ -165,7 +165,7 @@ function build(data) {
   const dots = cityLayer.selectAll("circle")
     .data(cities.slice().sort((a, b) => b.population - a.population)).join("circle")
     .attr("cx", (d) => at(d)[0]).attr("cy", (d) => at(d)[1])
-    .attr("fill", (d) => d.is_ranked ? cityColor(d.rates.C) : "#ffffff")
+    .attr("fill", (d) => d.is_ranked ? cityColor(d.rate) : "#ffffff")
     .attr("stroke", (d) => d.is_ranked ? "#ffffff" : "#8a8a95")
     .attr("vector-effect", "non-scaling-stroke");
 
@@ -189,10 +189,10 @@ function build(data) {
   svg.append("rect").attr("width", W).attr("height", 172).attr("fill", "#ffffff").attr("opacity", 0.94);
   text(svg, 48, 72, "Where in Germany is it easiest to land a job?", { size: 40, weight: 700 });
   text(svg, 48, 114,
-    `Entry-level job listings per 1,000 unemployed · ${cities.length} cities with 100,000+ residents`,
+    `Registered vacancies per 1,000 unemployed · ${cities.length} cities with 100,000+ residents`,
     { size: 21, fill: MUTED });
   text(svg, 48, 146,
-    `Unemployment: ${monthLabel(data.unemployment_period)} · listings posted in the last 30 days`,
+    `${monthLabel(data.vacancy_period)} · official BA statistics, own calculations`,
     { size: 18, fill: MUTED });
 
   // The city card.
@@ -203,20 +203,23 @@ function build(data) {
   const cardTag = text(card, 40, 56, "", { size: 22, weight: 700, fill: MUTED });
   const cardName = text(card, 40, 100, "", { size: 44, weight: 700 });
   const cardValue = text(card, 40, 192, "", { size: 84, weight: 800 });
-  text(card, 40, 226, "entry-level listings per 1,000 unemployed", { size: 20, fill: MUTED });
+  text(card, 40, 226, "registered vacancies per 1,000 unemployed", { size: 20, fill: MUTED });
   const cardRatio = text(card, CARD.w - 40, 150, "", { size: 72, weight: 800, anchor: "end" });
   const cardRatioNote = text(card, CARD.w - 40, 188, "", { size: 20, fill: MUTED, anchor: "end" });
   const cardOther = text(card, CARD.w - 40, 226, "", { size: 18, fill: MUTED, anchor: "end" });
 
   // The end card.
-  const ratio = top[0].rates.C / berlin.rates.C;
+  const ratio = top[0].rate / berlin.rate;
   const end = svg.append("g").attr("transform", `translate(${CARD.x},${CARD.y})`);
   end.append("rect").attr("width", CARD.w).attr("height", CARD.h).attr("rx", 18).attr("fill", INK);
-  text(end, 40, 78, `${top[0].city} has ${fmt(ratio, 1)}× as many entry-level`,
-    { size: 38, weight: 700, fill: "#ffffff" });
-  text(end, 40, 124, "openings per job seeker as Berlin.", { size: 38, weight: 700, fill: "#ffffff" });
-  text(end, 40, 196, "One day of data. Daily snapshots are running.", { size: 24, fill: "#c9c9d2" });
-  text(end, 40, 232, "Want the 7-day version?", { size: 24, weight: 700, fill: "#9be3a8" });
+  text(end, 40, 72, `${top[0].city} tops the ranking of ${ranked.length} cities:`,
+    { size: 36, weight: 700, fill: "#ffffff" });
+  text(end, 40, 118, `${fmt(ratio, 1)}× Berlin's registered vacancies per job seeker.`,
+    { size: 30, weight: 600, fill: "#ffffff" });
+  text(end, 40, 196, "Official BA statistics (statistik.arbeitsagentur.de), own calculations.",
+    { size: 22, fill: "#c9c9d2" });
+  text(end, 40, 232, `${monthLabel(data.vacancy_period)} · code and method: germany-job-ease-index`,
+    { size: 22, weight: 600, fill: "#9be3a8" });
 
   // Footer.
   text(svg, 48, 1314, `Data: ${data.sources.slice(0, 2).join(" · ")}`, { size: 13, fill: MUTED });
@@ -247,10 +250,10 @@ function build(data) {
       card.attr("opacity", shown);
       cardTag.text(isBaseline ? "THE BASELINE" : `#${city.rank} OF ${ranked.length}`);
       cardName.text(city.city);
-      cardValue.text(fmt(city.rates.C * counted)).attr("fill", d3.color(cityColor(city.rates.C)).darker(0.6));
-      cardRatio.text(isBaseline ? "1.0×" : `${fmt((city.rates.C / berlin.rates.C) * counted, 1)}×`);
+      cardValue.text(fmt(city.rate * counted)).attr("fill", d3.color(cityColor(city.rate)).darker(0.6));
+      cardRatio.text(isBaseline ? "1.0×" : `${fmt((city.rate / berlin.rate) * counted, 1)}×`);
       cardRatioNote.text(isBaseline ? "the capital, our yardstick" : "Berlin's rate");
-      cardOther.text(`Office ${fmt(city.rates.B)} · Tech ${fmt(city.rates.A)}`);
+      cardOther.text(`${fmt(city.vacancies)} vacancies · ${fmt(city.unemployed)} unemployed`);
 
       const [sx, sy] = toScreen(at(city));
       const pulse = progress(local, 0, 0.8);

@@ -10,12 +10,12 @@ from datetime import date
 from pathlib import Path
 
 from jobease import (
-    export,
     launchd,
     map_export,
     official_vacancies,
     pipeline,
     tour_video,
+    vacancy_export,
     warehouse,
 )
 from jobease.config import REPO_ROOT, load_settings
@@ -53,7 +53,9 @@ def _parser() -> argparse.ArgumentParser:
     fetch.add_argument("--batch-id", help="resume an interrupted batch")
     fetch.add_argument("--limit-cities", type=int, help="only the first N cities (smoke test)")
 
-    commands.add_parser("export", help="write data/exports/city_ease.csv and summary.json")
+    commands.add_parser(
+        "export", help="write data/exports/city_vacancy_ease.csv and summary.json"
+    )
     commands.add_parser("export-map", help="write docs/map/data.js for the district map")
     commands.add_parser("status", help="row counts of the landing tables")
 
@@ -158,7 +160,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             pipeline.fetch_counts(settings, batch_id=args.batch_id, limit_cities=args.limit_cities)
         )
     elif args.command == "export":
-        for path in export.export(settings):
+        for path in vacancy_export.export_vacancies():
             print(path)
     elif args.command == "status":
         with warehouse.connect(settings.warehouse) as con:

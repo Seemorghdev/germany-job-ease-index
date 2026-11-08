@@ -10,7 +10,7 @@ export JOBEASE_DUCKDB   ?= $(CURDIR)/data/warehouse.duckdb
 export DBT_PROFILES_DIR := $(CURDIR)/dbt
 DBT_FLAGS := --project-dir dbt --profiles-dir dbt
 
-.PHONY: setup lint format typecheck test check ingest fetch snapshot build export notebooks map tour dev clean
+.PHONY: setup lint format typecheck test check ingest fetch snapshot build export notebooks map tour vacancies dev clean
 
 setup:
 	$(PYTHON) -m venv $(VENV)
@@ -58,6 +58,11 @@ map:
 tour: map
 	$(JOBEASE) record-tour
 
+## Level 3 input: the official BA vacancy index (data/official-vacancies/). --offline
+## rebuilds from the tables the last fetch stored, with no requests.
+vacancies:
+	$(JOBEASE) vacancy-index --offline
+
 ## Seeds, models and data tests, in dependency order.
 build:
 	$(BIN)/dbt build $(DBT_FLAGS)
@@ -67,7 +72,9 @@ export:
 
 ## Run the level-2 notebooks and export each as a standalone page in docs/notebooks/.
 ## Level 1 (notebooks/level1_learn) reads private tables and is never exported.
-NOTEBOOKS := $(wildcard notebooks/level2_analysis/*.py)
+## Only the unemployment history is exported: the other two read job-board marts, which
+## are no longer published (BA Jobbörse terms of use).
+NOTEBOOKS := notebooks/level2_analysis/02_unemployment_history.py
 notebooks:
 	mkdir -p docs/notebooks
 	for nb in $(NOTEBOOKS); do \

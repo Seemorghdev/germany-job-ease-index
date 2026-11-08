@@ -34,16 +34,23 @@
       <li><strong>Districts</strong> are shaded by unemployed people per 1,000 residents
         (all ages, so lower than the official rate, which counts only the labour force).</li>
       <li><strong>Dots</strong> are the 79 cities with 100,000+ residents, sized by population.
-        Green ones are ranked; the darker, the more entry-level listings per 1,000 unemployed.
-        White dots are cities that make up less than half of their district, where the
-        district's unemployment says little about the city itself.</li>
-      <li><strong>The top 5</strong> rank first on a weighted mix of all three kinds of work
-        (entry-level counts double). The bars show listings per 1,000 unemployed per kind of
-        work; the black tick marks Berlin's value.</li>
+        Green ones are ranked; the darker, the more vacancies registered with the Federal
+        Employment Agency (BA) per 1,000 unemployed people in the city's district. White dots
+        aren't ranked: cities that make up less than half of their district, where district
+        figures say little about the city itself, and Köln, whose count includes Bundeswehr
+        posts advertised for all of Germany.</li>
+      <li><strong>The top 5</strong> have the most registered vacancies per 1,000 unemployed.
+        The black tick marks Berlin's value.</li>
+      <li><strong>Registered vacancies</strong> are the openings employers report to the BA.
+        Not every employer reports every opening, so this counts part of the job market, the
+        same way in every district.</li>
     </ul>
     <h2>Data</h2>
     <p id="sources"></p>
-    <p>Built with Python, DuckDB, dbt and Dagster; drawn with Observable Plot and D3.
+    <p>Source: Statistik der Bundesagentur für Arbeit,
+      <a href="https://statistik.arbeitsagentur.de">statistik.arbeitsagentur.de</a>.
+      The ratios and the ranking are our own calculations, not BA figures.
+      Built with Python, DuckDB, dbt and Dagster; drawn with Observable Plot and D3.
       Code and method: <code>germany-job-ease-index</code>.</p>
   </section>
 </main>
@@ -61,7 +68,6 @@ const SIDE = { x: 724, y: 168, w: 332 };
 const FONT = 'system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif';
 const INK = "#1f1f24";
 const MUTED = "#6b6b75";
-const TIER_SHORT = { A: "Tech", B: "Office", C: "Entry-level" };
 
 function fmt(value, digits = 0) {
   return value == null ? "–" : value.toLocaleString("en-GB", {
@@ -105,10 +111,10 @@ function draw(data) {
     .domain(perThousand)
     .range(d3.quantize(d3.interpolateRgb("#f2f0f6", "#6f6290"), 6));
 
-  // City colour: entry-level listings per 1,000 unemployed, ranked cities only.
-  const entryRates = ranked.map((c) => c.rates.C).filter((v) => v != null);
+  // City colour: registered vacancies per 1,000 unemployed, ranked cities only.
+  const rates = ranked.map((c) => c.rate).filter((v) => v != null);
   const cityColor = d3.scaleSequential((t) => d3.interpolateGreens(0.35 + 0.65 * t))
-    .domain(d3.extent(entryRates));
+    .domain(d3.extent(rates));
 
   const labelled = new Set(["11000000", "02000000", "09162000", "05315000"]);  // Berlin, Hamburg, München, Köln
   top.forEach((c) => labelled.add(c.ags));
@@ -137,16 +143,17 @@ function draw(data) {
         x: "lon",
         y: "lat",
         r: "population",
-        fill: (d) => d.is_ranked ? cityColor(d.rates.C) : "#ffffff",
+        fill: (d) => d.is_ranked ? cityColor(d.rate) : "#ffffff",
         stroke: (d) => d.is_ranked ? "#ffffff" : "#8a8a95",
         strokeWidth: 1,
         sort: { channel: "r", order: "descending" },
         title: (d) => [
           d.city,
-          d.is_ranked ? `Rank ${d.rank} of ${ranked.length}` : "Not ranked (city is under half its district)",
-          `Entry-level listings per 1,000 unemployed: ${fmt(d.rates.C, 1)}`,
-          `Office: ${fmt(d.rates.B, 1)} · Tech: ${fmt(d.rates.A, 1)}`,
-        ].join("\n"),
+          d.is_ranked ? `Rank ${d.rank} of ${ranked.length}` : `Not ranked: ${d.not_ranked_reason}`,
+          `Registered vacancies per 1,000 unemployed: ${fmt(d.rate, 1)}`,
+          d.vacancies == null ? "" : `${fmt(d.vacancies)} vacancies (a year earlier: ${fmt(d.vacancies_year_before)}) · ${fmt(d.unemployed)} unemployed`,
+          d.note ? `Note: ${d.note}` : "",
+        ].filter(Boolean).join("\n"),
       }),
       Plot.dot(top, {
         x: "lon", y: "lat", dx: 15, dy: -15, r: 10, fill: INK, stroke: "#ffffff", strokeWidth: 1.5,
@@ -169,16 +176,16 @@ function draw(data) {
     .attr("height", H)
     .attr("font-family", FONT)
     .attr("role", "img")
-    .attr("aria-label", "Map of Germany: districts shaded by unemployment, cities by job-board openings per job seeker");
+    .attr("aria-label", "Map of Germany: districts shaded by unemployment, cities by registered vacancies per unemployed person");
   svg.append("rect").attr("width", W).attr("height", H).attr("fill", "#ffffff");
 
   // Title block
   text(svg, 40, 66, "Where in Germany is it easiest to land a job?", { size: 38, weight: 700 });
   text(svg, 40, 104,
-    `Job-board listings per 1,000 unemployed, in the ${cities.length} cities with 100,000+ residents`,
+    `Vacancies registered with the BA per 1,000 unemployed, in the ${cities.length} cities with 100,000+ residents`,
     { size: 20, fill: MUTED });
   text(svg, 40, 132,
-    `Unemployment: ${monthLabel(data.unemployment_period)} · listings posted in the last 30 days`,
+    `${monthLabel(data.vacancy_period)} · official BA statistics, own calculations`,
     { size: 17, fill: MUTED });
 
   // Map
@@ -187,14 +194,12 @@ function draw(data) {
   mapSvg.setAttribute("y", MAP.y);
   svg.node().appendChild(mapSvg);
 
-  // Side column: the top five, with mini bars per tier and Berlin as a reference tick.
+  // Side column: the top five, one bar each, with Berlin as a reference tick.
   const side = svg.append("g").attr("transform", `translate(${SIDE.x},${SIDE.y})`);
   text(side, 0, 0, "The top 5", { size: 22, weight: 700 });
-  text(side, 0, 24, "Listings per 1,000 unemployed · black tick = Berlin", { size: 14, fill: MUTED });
-  const tiers = ["C", "B", "A"];
-  const maxRate = d3.max([...top, berlin].filter(Boolean)
-    .flatMap((c) => tiers.map((t) => c.rates[t] || 0)));
-  const barX = d3.scaleLinear().domain([0, maxRate]).range([0, 190]);
+  text(side, 0, 24, "Vacancies per 1,000 unemployed · black tick = Berlin", { size: 14, fill: MUTED });
+  const maxRate = d3.max([...top, berlin].filter(Boolean).map((c) => c.rate || 0));
+  const barX = d3.scaleLinear().domain([0, maxRate]).range([0, 230]);
   const cardH = 158;
   top.forEach((city, i) => {
     const card = side.append("g").attr("transform", `translate(0,${44 + i * (cardH + 12)})`);
@@ -203,20 +208,21 @@ function draw(data) {
     card.append("circle").attr("cx", 26).attr("cy", 30).attr("r", 14).attr("fill", INK);
     text(card, 26, 35, String(city.rank), { size: 14, weight: 700, fill: "#ffffff", anchor: "middle" });
     text(card, 50, 37, city.city, { size: 22, weight: 700 });
-    tiers.forEach((tier, j) => {
-      const y = 62 + j * 30;
-      const value = city.rates[tier] || 0;
-      text(card, 16, y + 12, TIER_SHORT[tier], { size: 13, fill: MUTED });
-      card.append("rect").attr("x", 100).attr("y", y).attr("height", 16)
-        .attr("width", Math.max(1, barX(value))).attr("rx", 3)
-        .attr("fill", tier === "C" ? cityColor(value) : "#9a9aa6");
-      if (berlin && berlin.rates[tier] != null) {
-        const bx = 100 + barX(berlin.rates[tier]);
-        card.append("line").attr("x1", bx).attr("x2", bx).attr("y1", y - 3).attr("y2", y + 19)
-          .attr("stroke", INK).attr("stroke-width", 2);
-      }
-      text(card, 100 + barX(value) + 8, y + 13, fmt(value), { size: 13, weight: 600 });
-    });
+    const y = 64;
+    const value = city.rate || 0;
+    card.append("rect").attr("x", 16).attr("y", y).attr("height", 22)
+      .attr("width", Math.max(1, barX(value))).attr("rx", 3).attr("fill", cityColor(value));
+    if (berlin && berlin.rate != null) {
+      const bx = 16 + barX(berlin.rate);
+      card.append("line").attr("x1", bx).attr("x2", bx).attr("y1", y - 4).attr("y2", y + 26)
+        .attr("stroke", INK).attr("stroke-width", 2);
+    }
+    text(card, 16 + barX(value) + 8, y + 17, fmt(value), { size: 15, weight: 700 });
+    text(card, 16, 118, `${fmt(city.vacancies)} vacancies · ${fmt(city.unemployed)} unemployed`,
+      { size: 13, fill: MUTED });
+    if (berlin && berlin.rate) {
+      text(card, 16, 140, `${fmt(value / berlin.rate, 1)}× Berlin's rate`, { size: 13, weight: 600 });
+    }
   });
 
   // Legends
@@ -232,7 +238,7 @@ function draw(data) {
   text(legend, classes.length * 52, 44, fmt(cuts[cuts.length - 1]), { size: 12, fill: MUTED, anchor: "end" });
 
   const cityLegend = svg.append("g").attr("transform", "translate(420,1090)");
-  text(cityLegend, 0, 0, "Cities: entry-level listings per 1,000 unemployed", { size: 14, weight: 600 });
+  text(cityLegend, 0, 0, "Cities: registered vacancies per 1,000 unemployed", { size: 14, weight: 600 });
   const [lo, hi] = cityColor.domain();
   const steps = d3.range(0, 1.0001, 0.1).map((t) => lo + t * (hi - lo));
   steps.slice(0, -1).forEach((v, i) => {
@@ -246,10 +252,10 @@ function draw(data) {
   text(cityLegend, 314, 24, "not ranked", { size: 12, fill: MUTED });
 
   // Key finding
-  if (top.length && berlin && berlin.rates.C) {
-    const ratio = top[0].rates.C / berlin.rates.C;
+  if (top.length && berlin && berlin.rate) {
+    const ratio = top[0].rate / berlin.rate;
     text(svg, 40, 1210,
-      `${top[0].city} has ${fmt(ratio, 1)}× as many entry-level openings per job seeker as Berlin.`,
+      `${top[0].city} has ${fmt(ratio, 1)}× as many registered vacancies per unemployed person as Berlin.`,
       { size: 22, weight: 600 });
   }
 
@@ -257,7 +263,7 @@ function draw(data) {
   const half = Math.ceil(data.sources.length / 2);
   text(svg, 40, 1270, `Data: ${data.sources.slice(0, half).join(" · ")}`, { size: 12, fill: MUTED });
   text(svg, 40, 1290, data.sources.slice(half).join(" · "), { size: 12, fill: MUTED });
-  text(svg, 40, 1316, "germany-job-ease-index · Python, DuckDB, dbt, Dagster · Observable Plot",
+  text(svg, 40, 1316, "germany-job-ease-index · statistik.arbeitsagentur.de · Python, DuckDB, dbt, Dagster · Observable Plot",
     { size: 11, fill: MUTED });
 
   return svg.node();
