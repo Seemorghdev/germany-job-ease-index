@@ -173,12 +173,12 @@ def official_vacancy_index() -> dg.MaterializeResult[None]:
     summary = refresh_index(SETTINGS)
     return dg.MaterializeResult(
         metadata={
-            "period": str(summary["period"]),
-            "geographies": summary["geographies"],
-            "vacancy_csvs": summary["vacancy_csvs"],
-            "included": summary["included"],
-            "excluded": summary["excluded"],
-            "index": str(summary["index"]),
+            "period": str(summary.period),
+            "geographies": summary.geographies,
+            "vacancy_csvs": summary.vacancy_csvs,
+            "included": summary.included,
+            "excluded": summary.excluded,
+            "index": str(summary.index),
         }
     )
 

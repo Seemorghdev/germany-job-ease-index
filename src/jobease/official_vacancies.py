@@ -14,6 +14,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
+from typing import cast
 from urllib.parse import quote
 
 from jobease.config import GVISYS_DEFAULT_COLUMNS, REPO_ROOT, Settings
@@ -69,6 +70,17 @@ class CityIndexRow:
     project_combined_rank: int
     raw_sha256: str
     vacancy_url: str
+
+
+@dataclass(frozen=True)
+class IndexSummary:
+    period: date
+    unemployment_source: Path
+    geographies: int
+    vacancy_csvs: int
+    included: int
+    excluded: int
+    index: Path
 
 
 def parse_vacancy_csv(data: bytes) -> VacancyCsv:
@@ -192,7 +204,7 @@ def compose_index(
         if vacancy.period != period or unemployed <= 0:
             continue
         stock = vacancy.stock
-        population = int(city["population"])
+        population = cast(int, city["population"])
         joined.append(
             CityIndexRow(
                 city=str(city["city"]),
@@ -235,7 +247,7 @@ def latest_unemployment(
         for row in parsed.rows
         if row.period == period and row.unemployed is not None
     }
-    return period, rows  # type: ignore[return-value]
+    return period, rows
 
 
 def write_index(rows: list[CityIndexRow], path: Path) -> None:
@@ -247,7 +259,7 @@ def write_index(rows: list[CityIndexRow], path: Path) -> None:
         writer.writerows(row.__dict__ for row in rows)
 
 
-def refresh_index(settings: Settings) -> dict[str, object]:
+def refresh_index(settings: Settings) -> IndexSummary:
     """Fetch official BA Kreis CSVs, then write a local, standalone monthly index.
 
     ``settings`` is the regular ``jobease.config.Settings`` object. This function reads
@@ -305,14 +317,14 @@ def refresh_index(settings: Settings) -> dict[str, object]:
             unemp_label, _ = unemp[code]
             url = vacancy_url(unemp_label)
             response = client.get(url)
-            parsed = parse_vacancy_csv(response.content)
+            vacancy = parse_vacancy_csv(response.content)
             artifact = store.put_bytes("ba_vacancies", response.content, suffix=".csv", origin=url)
-            vacancy_by_code[code] = (parsed, artifact.sha256, url)
+            vacancy_by_code[code] = (vacancy, artifact.sha256, url)
             same_code = (
                 True  # URL uses the BA unemployment label; both source files are Kreis tables.
             )
-            same_label = parsed.area_label == unemp_label
-            same_month = parsed.period == period
+            same_label = vacancy.area_label == unemp_label
+            same_month = vacancy.period == period
             status = (
                 "matched"
                 if same_code and same_label and same_month
@@ -331,8 +343,8 @@ def refresh_index(settings: Settings) -> dict[str, object]:
             audit_rows.append(
                 _audit_row(
                     city,
-                    parsed.area_label,
-                    parsed.period.strftime("%Y-%m"),
+                    vacancy.area_label,
+                    vacancy.period.strftime("%Y-%m"),
                     artifact.sha256,
                     status,
                     vacancy_type=str(city["area_type"]),
@@ -357,8 +369,8 @@ def refresh_index(settings: Settings) -> dict[str, object]:
     with (output / f"ba_vacancy_manifest-{suffix}.csv").open(
         "w", encoding="utf-8", newline=""
     ) as handle:
-        writer = csv.writer(handle)
-        writer.writerow(
+        manifest = csv.writer(handle)
+        manifest.writerow(
             [
                 "district_code",
                 "district_label",
@@ -371,7 +383,7 @@ def refresh_index(settings: Settings) -> dict[str, object]:
             ]
         )
         for code, (value, digest, url) in sorted(vacancy_by_code.items()):
-            writer.writerow(
+            manifest.writerow(
                 [
                     code,
                     value.area_label,
@@ -383,15 +395,15 @@ def refresh_index(settings: Settings) -> dict[str, object]:
                     str(unemployment_artifact.path.relative_to(REPO_ROOT)),
                 ]
             )
-    return {
-        "period": period,
-        "unemployment_source": source_file,
-        "geographies": len(geographies),
-        "vacancy_csvs": len(vacancy_by_code),
-        "included": len(rows),
-        "excluded": len(geographies) - len(rows),
-        "index": output / f"city_vacancy_ease-{suffix}.csv",
-    }
+    return IndexSummary(
+        period=period,
+        unemployment_source=source_file,
+        geographies=len(geographies),
+        vacancy_csvs=len(vacancy_by_code),
+        included=len(rows),
+        excluded=len(geographies) - len(rows),
+        index=output / f"city_vacancy_ease-{suffix}.csv",
+    )
 
 
 def _audit_row(
