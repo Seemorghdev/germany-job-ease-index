@@ -44,3 +44,22 @@ seeds:
       - name: kind
         data_tests:
           - accepted_values: {arguments: {values: [starts, ends, gap, never]}}
+
+  - name: skill_levels
+    description: >
+      The BA's skill levels (Anforderungsniveau, the fifth digit of a KldB 2010 code), from
+      Helfer (no vocational training needed) to Experte (degree level).
+    columns:
+      - name: skill_level
+        data_tests: [unique, not_null]
+
+  - name: occupation_shortlist
+    description: >
+      The occupation groups (KldB 2010, 2 digits) shown in published charts.
+      `label_must_contain` guards the code: the BA's label for it must contain this text.
+    columns:
+      - name: occupation_code
+        data_tests:
+          - unique
+          - not_null
+          - matches_pattern: {arguments: {pattern: '[0-9]{2}'}}

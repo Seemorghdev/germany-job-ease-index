@@ -43,6 +43,9 @@ def _parser() -> argparse.ArgumentParser:
     commands.add_parser("ingest-ba", help="load every BA district unemployment issue")
     commands.add_parser("ingest-gvisys", help="load the Destatis municipality directory")
     commands.add_parser("ingest-bkg", help="load BKG state and district boundaries")
+    commands.add_parser(
+        "ingest-occupations", help="load the BA occupation and skill-level workbooks (Länder)"
+    )
 
     geo = commands.add_parser("inspect-geo", help="list the layers of a BKG VG250 ZIP")
     geo.add_argument("file", type=Path)
@@ -158,6 +161,9 @@ def _run(argv: Sequence[str] | None) -> int:
         print(pipeline.ingest_gvisys(settings))
     elif args.command == "ingest-bkg":
         print(pipeline.ingest_bkg(settings))
+    elif args.command == "ingest-occupations":
+        for summary in pipeline.ingest_occupations(settings):
+            print(summary)
     elif args.command == "export-map":
         for path in map_export.export_map(settings):
             print(path)

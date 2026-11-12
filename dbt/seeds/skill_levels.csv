@@ -1,0 +1,7 @@
+skill_level,label_de,label_en,sort_order
+total,Gesamt,All levels,0
+helfer,Helfer,Unskilled / entry level,1
+fachkraft,Fachkraft,Vocational,2
+spezialist,Spezialist,Advanced vocational,3
+experte,Experte,Degree level,4
+unknown,keine Angabe,Not stated,9

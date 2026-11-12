@@ -39,6 +39,13 @@ name = "H"
 area_km2 = "I"
 population = "J"
 
+[ba_occupations]
+# BA "Arbeitsmarkt nach Berufen (KldB 2010) - Deutschland, West/Ost und Länder", one .xlsx
+# per reporting month (berufe-heft-kldb2010-dwol-0-<yyyymm>-xlsx.xlsx). Every file in the
+# folder is loaded. Germany, West, East and Länder only: the BA publishes no free split by
+# occupation or skill level for districts.
+dir = "data/inputs/ba_occupations"
+
 [bkg_vg250]
 # BKG Verwaltungsgebiete 1:250 000, Stand 01.01. (GeoPackage, UTM32): boundaries on the
 # reform state of 1 January, so districts created on that day (Hanau 2026) are included.

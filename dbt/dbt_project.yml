@@ -18,6 +18,13 @@ vars:
   min_district_coverage: 0.5
   # Pin a job-board batch (e.g. "20261105T150000Z"); default is the latest complete batch.
   jobsuche_batch: null
+  # A Land × occupation × skill level cell is ranked only with at least this many
+  # unemployed; smaller bases make the rate jumpy.
+  min_occupation_unemployed: 100
+  # Allowed relative gap between a region's unemployed in the occupation workbook and the
+  # sum of its districts in the district issues for the same month. Both are BA counts on
+  # the same reporting date, so they should agree exactly.
+  occupation_district_tolerance: 0.0
 
 models:
   jobease:
@@ -46,6 +53,10 @@ seeds:
       +column_types: {ags: varchar, search_name: varchar, reason: varchar}
     lands:
       +column_types: {land_code: varchar, land_name: varchar}
+    skill_levels:
+      +column_types: {skill_level: varchar, label_de: varchar, label_en: varchar, sort_order: integer}
+    occupation_shortlist:
+      +column_types: {occupation_code: varchar, short_label: varchar, label_must_contain: varchar}
     unemployment_gap_reasons:
       +column_types:
         district_code: varchar

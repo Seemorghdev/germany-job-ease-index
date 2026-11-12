@@ -1,0 +1,56 @@
+version: 2
+
+models:
+  - name: mart_region_level_ease
+    description: >
+      Vacancies per 1,000 unemployed by skill level (Helfer to Experte) for Germany, West,
+      East and each Land. The BA publishes this split no lower than Land, so it answers
+      "which kind of job is easier to get", while the city index answers "where".
+    data_tests:
+      - unique_combination:
+          arguments: {combination: [region_code, skill_level]}
+    columns:
+      - name: region_code
+        data_tests: [not_null]
+      - name: skill_level
+        data_tests:
+          - accepted_values:
+              arguments: {values: [total, helfer, fachkraft, spezialist, experte]}
+      - name: unemployed
+        data_tests: [not_null]
+      - name: vacancies_per_1000_unemployed
+        data_tests:
+          - not_null:
+              config: {where: "region_kind <> 'land' or is_ranked"}
+          - accepted_range:
+              arguments: {min_value: 0, max_value: 5000}
+      - name: share_of_unemployed
+        data_tests:
+          - accepted_range:
+              arguments: {min_value: 0, max_value: 1}
+      - name: rank_among_lands
+        data_tests:
+          - not_null:
+              config: {where: "is_ranked"}
+
+  - name: mart_region_occupation_ease
+    description: >
+      Vacancies per 1,000 unemployed by occupation group (KldB 2010, 2 digits) and skill
+      level, for Germany, West, East and each Land. Small or suppressed cells stay in the
+      table with a `not_ranked_reason`.
+    data_tests:
+      - unique_combination:
+          arguments: {combination: [region_code, occupation_code, skill_level]}
+    columns:
+      - name: occupation_code
+        data_tests:
+          - not_null
+          - matches_pattern: {arguments: {pattern: '[0-9]{2}'}}
+      - name: vacancies_per_1000_unemployed
+        data_tests:
+          - accepted_range:
+              arguments: {min_value: 0}
+      - name: rank_among_lands
+        data_tests:
+          - not_null:
+              config: {where: "is_ranked"}

@@ -123,6 +123,28 @@ LANDING_DDL: tuple[str, ...] = (
         primary key (snapshot_date, ags, tier, term, reference)
     )
     """,
+    # BA "Arbeitsmarkt nach Berufen": one row per region, occupation, skill level, measure and
+    # month (the reporting month and the same month a year earlier), one slice per issue.
+    """
+    create table if not exists landing.ba_occupation_levels (
+        vintage           date        not null,  -- reporting month of the issue
+        period            date        not null,
+        region_code       varchar     not null,  -- DE, W, O or the 2-digit Land code
+        region_name       varchar     not null,
+        occupation_code   varchar     not null,  -- 'total' or the KldB 2010 code
+        occupation_digits integer     not null,  -- 0 for the total
+        occupation_label  varchar     not null,
+        skill_level       varchar     not null,  -- total, helfer ... experte, unknown
+        measure           varchar     not null,  -- unemployed, jobseekers, vacancies, ...
+        value             integer,               -- null unless value_status is value or zero
+        value_status      varchar     not null,  -- value | zero | suppressed | empty
+        sheet             varchar     not null,
+        row_number        integer     not null,
+        artifact_sha256   varchar     not null,
+        loaded_at         timestamptz not null,
+        primary key (vintage, period, region_code, occupation_code, skill_level, measure)
+    )
+    """,
     # BKG boundaries, simplified and in longitude/latitude, as GeoJSON text.
     """
     create table if not exists landing.bkg_areas (

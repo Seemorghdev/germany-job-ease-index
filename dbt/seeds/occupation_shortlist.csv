@@ -1,0 +1,8 @@
+occupation_code,short_label,label_must_contain
+43,IT,Informatik
+51,Warehouse & logistics,Logistik
+54,Cleaning,Reinigung
+62,Retail & sales,Verkauf
+63,Hotels & catering,Hotel
+71,Office & admin,Unternehmens
+81,Health & care,Gesundheit

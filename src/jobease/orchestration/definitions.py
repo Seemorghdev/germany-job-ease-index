@@ -91,6 +91,18 @@ def bkg_vg250() -> Iterator[dg.MaterializeResult[None]]:
     )
 
 
+@dg.asset(key=_key("ba_occupation_levels"), group_name=LANDING, kinds=LANDING_KINDS)
+def ba_occupations() -> dg.MaterializeResult[None]:
+    """Unemployed and vacancies by occupation and skill level, Germany and Länder (BA)."""
+    summaries = pipeline.ingest_occupations(SETTINGS)
+    return dg.MaterializeResult(
+        metadata={
+            "rows": sum(s.rows for s in summaries),
+            "vintages": [str(s.detail["vintage"]) for s in summaries],
+        }
+    )
+
+
 @dg.asset(
     key=_key("jobsuche_counts"),
     group_name=LANDING,
@@ -212,6 +224,7 @@ defs = dg.Definitions(
         ba_unemployment,
         destatis_gvisys,
         bkg_vg250,
+        ba_occupations,
         jobsuche_counts,
         jobsuche_snapshot,
         official_vacancy_index,

@@ -31,3 +31,9 @@ sources:
       - name: bkg_municipality_points
         description: One point inside every municipality (BKG VG250), for placing city markers.
         meta: {dagster: {asset_key: ["landing", "bkg_municipality_points"]}}
+      - name: ba_occupation_levels
+        description: >
+          Unemployed, job seekers and registered vacancies by occupation (KldB 2010) and skill
+          level, for Germany, West, East and the 16 Länder; one slice per BA issue (`vintage`),
+          each with the reporting month and the same month a year earlier.
+        meta: {dagster: {asset_key: ["landing", "ba_occupation_levels"]}}

@@ -107,6 +107,17 @@ class BkgSettings:
 
 
 @dataclass(frozen=True)
+class BaOccupationsSettings:
+    dir: Path
+
+    def files(self) -> list[Path]:
+        """The workbooks to load: every .xlsx in ``dir``, in name order."""
+        if not self.dir.is_dir():
+            raise ConfigError(f"[ba_occupations] dir {self.dir} does not exist")
+        return sorted(p for p in self.dir.iterdir() if p.suffix.lower() == ".xlsx" and p.is_file())
+
+
+@dataclass(frozen=True)
 class Settings:
     warehouse: Path
     raw_dir: Path
@@ -116,6 +127,7 @@ class Settings:
     gvisys: GvisysSettings
     jobsuche: JobsucheSettings
     bkg: BkgSettings
+    occupations: BaOccupationsSettings
 
 
 def _section(raw: dict[str, Any], name: str) -> dict[str, Any]:
@@ -149,6 +161,7 @@ def load_settings(config_path: Path | None = None) -> Settings:
     cities = _section(raw, "cities")
     js = _section(raw, "jobsuche")
     bkg = _section(raw, "bkg_vg250")
+    occupations = _section(raw, "ba_occupations")
 
     warehouse = os.environ.get("JOBEASE_DUCKDB") or _require(paths, "warehouse", "paths")
     columns = {**GVISYS_DEFAULT_COLUMNS, **gv.get("columns", {})}
@@ -199,5 +212,8 @@ def load_settings(config_path: Path | None = None) -> Settings:
             municipality_layer=str(_require(bkg, "municipality_layer", "bkg_vg250")),
             land_area_gf=tuple(int(v) for v in _require(bkg, "land_area_gf", "bkg_vg250")),
             simplify_m=float(_require(bkg, "simplify_m", "bkg_vg250")),
+        ),
+        occupations=BaOccupationsSettings(
+            dir=resolve(_require(occupations, "dir", "ba_occupations")),
         ),
     )

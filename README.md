@@ -36,9 +36,26 @@ Every bug found during development has a test that keeps it fixed, for example A
 ### Limitations
 
 - **Registered vacancies are part of the job market, not all of it.** Not every employer reports every opening to the BA, and the share differs by sector. A city where employers report more often looks better.
-- **One measure for all work.** This is the total across skill levels. It doesn't say whether a city has entry-level jobs in particular.
+- **One measure for all work.** This is the total across skill levels. The split by skill level is below, at Land level.
 - **Where people live vs where they work.** Unemployment is counted where people live, but vacancies where the job is. Cities many people commute into can look better than the area around them.
 - **Openings, not hires.** The rate says nothing about applicants per opening, pay, or how easy the jobs are to reach without a car.
+
+## By skill level (October 2026)
+
+The same rate, split by the BA's skill levels (*Anforderungsniveau*), for Germany and each Land. Source: "Arbeitsmarkt nach Berufen (KldB 2010)". The BA publishes no free split below Land level.
+
+| Skill level | Unemployed | Registered vacancies | Vacancies per 1,000 unemployed |
+|---|---:|---:|---:|
+| Helfer (unskilled) | 1,491,232 | 112,031 | 75 |
+| Fachkraft (vocational) | 826,597 | 396,673 | 480 |
+| Spezialist | 229,907 | 84,469 | 367 |
+| Experte (degree level) | 240,450 | 60,800 | 253 |
+
+- **The level matters more than the place.** Helfer are 53% of the unemployed with a known skill level, but 17% of the vacancies. In office work the rate is 7 for Helfer and 140 for Fachkraft; in retail, 17 and 490.
+- **Bayern leads at both entry levels** (Helfer 129, Fachkraft 690); Berlin is last at every level.
+- **Checks:** the 16 Länder add up exactly to Germany for unemployed people. For job seekers and vacancies Germany is slightly higher, because it also counts people and posts that belong to no Land. Skill levels never add up to more than the total. Cells the BA suppresses stay unknown, never zero.
+
+Models: `int_occupation_levels`, `mart_region_level_ease`, `mart_region_occupation_ease`.
 
 ### Earlier versions
 
@@ -86,8 +103,8 @@ config/
   inputs.toml              every input path, column and parameter, in one place
   vacancy_exclusions.csv   reviewed districts left out of the ranking, with sources
 src/jobease/
-  sources/                 one parser per source: BA unemployment, Destatis, BKG (and the
-                           switched-off job-board client)
+  sources/                 one parser per source: BA unemployment, BA occupations by skill
+                           level, Destatis, BKG (and the switched-off job-board client)
   official_vacancies.py    the BA vacancy tables → the local city index
   vacancy_export.py        publishable files from that index
   map_export.py            the map's data, aggregates only
@@ -104,7 +121,7 @@ tests/                     Python unit tests (offline, synthetic inputs)
 
 ## Data and licences
 
-- **Statistik der Bundesagentur für Arbeit** ([statistik.arbeitsagentur.de](https://statistik.arbeitsagentur.de)): registered vacancies and unemployed per district. The rates, ranking and year-on-year ratios here are **own calculations**, not BA figures.
+- **Statistik der Bundesagentur für Arbeit** ([statistik.arbeitsagentur.de](https://statistik.arbeitsagentur.de)): registered vacancies and unemployed per district, and by occupation and skill level per Land. The rates, ranking and year-on-year ratios here are **own calculations**, not BA figures.
 - **Destatis Gemeindeverzeichnis (GV-ISys):** residents per municipality.
 - **© GeoBasis-DE / BKG (2026), [dl-de/by-2-0](https://www.govdata.de/dl-de/by-2-0):** VG250 boundaries.
 

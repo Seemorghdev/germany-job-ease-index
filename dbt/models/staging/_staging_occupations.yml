@@ -1,0 +1,37 @@
+version: 2
+
+models:
+  - name: stg_ba__occupation_levels
+    description: >
+      BA "Arbeitsmarkt nach Berufen": one row per issue, month, region, occupation, skill
+      level and measure. `value` is null when the BA suppressed it (`*`) or left it empty;
+      `-` (no cases) is kept as 0 with value_status `zero`.
+    data_tests:
+      - unique_combination:
+          arguments:
+            combination: [vintage, period, region_code, occupation_code, skill_level, measure]
+    columns:
+      - name: region_kind
+        data_tests:
+          - accepted_values: {arguments: {values: [germany, west_east, land]}}
+      - name: region_code
+        data_tests:
+          - relationships:
+              arguments: {to: ref('lands'), field: land_code}
+              config: {where: "region_kind = 'land'"}
+      - name: skill_level
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('skill_levels'), field: skill_level}
+      - name: measure
+        data_tests:
+          - accepted_values:
+              arguments: {values: [unemployed, jobseekers, vacancies, vacancy_inflow_12m]}
+      - name: value_status
+        data_tests:
+          - accepted_values: {arguments: {values: [value, zero, suppressed, empty]}}
+      - name: value
+        data_tests:
+          - not_null:
+              config: {where: "value_status in ('value', 'zero')"}

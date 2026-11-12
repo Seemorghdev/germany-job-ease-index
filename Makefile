@@ -41,6 +41,7 @@ ingest:
 	$(JOBEASE) ingest-ba
 	$(JOBEASE) ingest-gvisys
 	$(JOBEASE) ingest-bkg
+	$(JOBEASE) ingest-occupations
 
 ## Fetch listing counts from the BA job board (~20-30 min; resumable with --batch-id).
 fetch:

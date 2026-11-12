@@ -19,7 +19,7 @@ from jobease import seeds, warehouse
 from jobease.config import JobsucheSettings, Settings
 from jobease.http import PoliteClient
 from jobease.raw_store import RawArtifact, RawStore
-from jobease.sources import ba_issues, ba_unemployment, bkg, destatis_gvisys
+from jobease.sources import ba_issues, ba_occupations, ba_unemployment, bkg, destatis_gvisys
 from jobease.sources.jobsuche import (
     JobsucheClient,
     JobsucheDisabledError,
@@ -150,6 +150,88 @@ def ingest_ba(settings: Settings) -> list[IngestSummary]:
         if stale:
             log.info(
                 "ba_unemployment: removed vintages with no file: %s",
+                ", ".join(f"{v:%Y-%m}" for v in stale),
+            )
+    return summaries
+
+
+def ingest_occupations(settings: Settings) -> list[IngestSummary]:
+    """Load every "Arbeitsmarkt nach Berufen" workbook in the input folder, one landing
+    slice per reporting month. Vintages whose file was removed are deleted."""
+    files = settings.occupations.files()
+    if not files:
+        raise RuntimeError(f"no occupation workbooks in {settings.occupations.dir}")
+    store = RawStore(settings.raw_dir)
+
+    parsed: list[tuple[Path, RawArtifact, ba_occupations.ParseResult]] = []
+    seen: dict[date, Path] = {}
+    for path in files:
+        artifact = store.put_file("ba_occupations", path)
+        result = ba_occupations.parse_workbook(path)
+        if result.vintage in seen:
+            raise RuntimeError(
+                f"{path.name} and {seen[result.vintage].name} are both the "
+                f"{result.vintage:%Y-%m} issue; keep one"
+            )
+        seen[result.vintage] = path
+        parsed.append((path, artifact, result))
+
+    summaries: list[IngestSummary] = []
+    loaded_at = datetime.now(UTC)
+    with warehouse.connect(settings.warehouse) as con:
+        for path, artifact, result in parsed:
+            rows = [
+                {
+                    "vintage": result.vintage,
+                    "period": r.period,
+                    "region_code": r.region_code,
+                    "region_name": r.region_name,
+                    "occupation_code": r.occupation_code,
+                    "occupation_digits": r.occupation_digits,
+                    "occupation_label": r.occupation_label,
+                    "skill_level": r.skill_level,
+                    "measure": r.measure,
+                    "value": r.value,
+                    "value_status": r.value_status,
+                    "sheet": r.sheet,
+                    "row_number": r.row_number,
+                    "artifact_sha256": artifact.sha256,
+                    "loaded_at": loaded_at,
+                }
+                for r in result.rows
+            ]
+            warehouse.record_artifact(con, artifact)
+            warehouse.replace_rows(
+                con,
+                "landing.ba_occupation_levels",
+                rows,
+                where="vintage = ?",
+                params=[result.vintage],
+            )
+            detail: dict[str, str | int] = {
+                "file": path.name,
+                "vintage": f"{result.vintage:%Y-%m}",
+                "regions": len(result.regions),
+                "occupations": len({r.occupation_code for r in result.rows}),
+                "suppressed": result.count("suppressed"),
+                "zero": result.count("zero"),
+                "empty": result.count("empty"),
+            }
+            log.info("ba_occupations %s", " ".join(f"{k}={v}" for k, v in detail.items()))
+            summaries.append(IngestSummary("ba_occupations", len(rows), artifact.sha256, detail))
+
+        stale = [
+            v
+            for (v,) in con.execute(
+                "select distinct vintage from landing.ba_occupation_levels order by 1"
+            ).fetchall()
+            if v not in seen
+        ]
+        for vintage in stale:
+            con.execute("delete from landing.ba_occupation_levels where vintage = ?", [vintage])
+        if stale:
+            log.info(
+                "ba_occupations: removed vintages with no file: %s",
                 ", ".join(f"{v:%Y-%m}" for v in stale),
             )
     return summaries
